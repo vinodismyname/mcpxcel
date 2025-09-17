@@ -408,17 +408,393 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		mcp.WithDescription("Return a bounded cell range with pagination metadata"),
 		mcp.WithString("workbook_id", mcp.Required(), mcp.Description("Workbook handle ID")),
 		mcp.WithString("sheet", mcp.Required(), mcp.Description("Sheet name")),
-		mcp.WithString("range", mcp.Required(), mcp.Description("A1-style cell range (e.g., A1:D50)")),
+		mcp.WithString("range", mcp.Required(), mcp.Description("A1-style cell range or named range (e.g., A1:D50)")),
 		mcp.WithNumber("max_cells", mcp.DefaultNumber(float64(limits.MaxCellsPerOp)), mcp.Min(1), mcp.Description("Max cells to return before truncation")),
 		mcp.WithOutputSchema[ReadRangeOutput](),
 	)
 	s.AddTool(readRange, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ReadRangeInput) (*mcp.CallToolResult, error) {
-		return mcp.NewToolResultError("UNIMPLEMENTED: read_range"), nil
+		id := strings.TrimSpace(in.WorkbookID)
+		sheet := strings.TrimSpace(in.Sheet)
+		rng := strings.TrimSpace(in.RangeA1)
+		if id == "" || sheet == "" || rng == "" {
+			return mcp.NewToolResultError("VALIDATION: workbook_id, sheet, and range are required"), nil
+		}
+		maxCells := in.MaxCells
+		if maxCells <= 0 || maxCells > limits.MaxCellsPerOp {
+			maxCells = limits.MaxCellsPerOp
+		}
+
+		// We will build a JSON array-of-arrays payload in text form to keep memory bounded
+		var textOut string
+		var meta PageMeta
+		var outRange = rng
+
+		err := mgr.WithRead(id, func(f *excelize.File) error {
+			// Resolve named range if needed
+			var x1, y1, x2, y2 int
+			var parseErr error
+			x1, y1, x2, y2, outRange, parseErr = resolveRange(f, sheet, rng)
+			if parseErr != nil {
+				return parseErr
+			}
+
+			if x2 < x1 || y2 < y1 {
+				return fmt.Errorf("invalid range bounds after parse")
+			}
+
+			total := (x2 - x1 + 1) * (y2 - y1 + 1)
+			meta.Total = total
+
+			// Iterate row-major, but stop when we reach maxCells
+			// Build JSON array-of-arrays
+			var buf bytes.Buffer
+			buf.WriteByte('[')
+			writtenCells := 0
+			returnedRows := 0
+			stop := false
+			for row := y1; row <= y2 && !stop; row++ {
+				// For each row, emit an array of columns
+				if returnedRows > 0 {
+					buf.WriteByte(',')
+				}
+				buf.WriteByte('[')
+				colsWritten := 0
+				for col := x1; col <= x2; col++ {
+					if writtenCells >= maxCells {
+						stop = true
+						break
+					}
+					if colsWritten > 0 {
+						buf.WriteByte(',')
+					}
+					cellName, _ := excelize.CoordinatesToCellName(col, row)
+					val, _ := f.GetCellValue(sheet, cellName)
+					b, _ := json.Marshal(val)
+					buf.Write(b)
+					colsWritten++
+					writtenCells++
+				}
+				buf.WriteByte(']')
+				returnedRows++
+			}
+			buf.WriteByte(']')
+			textOut = buf.String()
+			meta.Returned = writtenCells
+			meta.Truncated = writtenCells < total
+			if meta.Truncated {
+				meta.NextCursor = fmt.Sprintf("sheet=%s&range=%s&offset=%d", sheet, outRange, writtenCells)
+			}
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, workbooks.ErrHandleNotFound) {
+				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+			}
+			// Map validation-ish errors
+			lower := strings.ToLower(err.Error())
+			if strings.Contains(lower, "invalid range") || strings.Contains(lower, "coordinates") {
+				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
+			}
+			if strings.Contains(lower, "doesn't exist") {
+				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("READ_FAILED: %v", err)), nil
+		}
+
+		out := ReadRangeOutput{
+			WorkbookID: id,
+			Sheet:      sheet,
+			RangeA1:    outRange,
+			Meta:       meta,
+		}
+		// Text payload is the data; structured holds metadata
+		res := mcp.NewToolResultStructured(out, "range read complete")
+		res.Content = []mcp.Content{mcp.NewTextContent(textOut)}
+		return res, nil
 	}))
 	reg.Register(readRange)
 
+	// write_range
+	type WriteRangeInput struct {
+		WorkbookID string     `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
+		Sheet      string     `json:"sheet" jsonschema_description:"Target sheet name"`
+		RangeA1    string     `json:"range" jsonschema_description:"Target A1 range (e.g., B2:D10)"`
+		Values     [][]string `json:"values" jsonschema_description:"2D array of values matching the range dimensions"`
+	}
+	type WriteRangeOutput struct {
+		WorkbookID   string `json:"workbook_id"`
+		Sheet        string `json:"sheet"`
+		RangeA1      string `json:"range"`
+		CellsUpdated int    `json:"cellsUpdated"`
+		Idempotent   bool   `json:"idempotent"`
+	}
+
+	writeRange := mcp.NewTool(
+		"write_range",
+		mcp.WithDescription("Write a bounded block of values to a range using a transactional stream writer"),
+		mcp.WithInputSchema[WriteRangeInput](),
+		mcp.WithOutputSchema[WriteRangeOutput](),
+	)
+	s.AddTool(writeRange, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in WriteRangeInput) (*mcp.CallToolResult, error) {
+		id := strings.TrimSpace(in.WorkbookID)
+		sheet := strings.TrimSpace(in.Sheet)
+		rng := strings.TrimSpace(in.RangeA1)
+		if id == "" || sheet == "" || rng == "" {
+			return mcp.NewToolResultError("VALIDATION: workbook_id, sheet, and range are required"), nil
+		}
+		if len(in.Values) == 0 {
+			return mcp.NewToolResultError("VALIDATION: values must be a non-empty 2D array"), nil
+		}
+
+		var updated int
+		err := mgr.WithWrite(id, func(f *excelize.File) error {
+			// Resolve range and verify dimensions match values
+			x1, y1, x2, y2, resolvedRange, perr := resolveRange(f, sheet, rng)
+			if perr != nil {
+				return perr
+			}
+			rng = resolvedRange
+			rows := y2 - y1 + 1
+			cols := x2 - x1 + 1
+			if rows <= 0 || cols <= 0 {
+				return fmt.Errorf("invalid range bounds")
+			}
+			if len(in.Values) != rows {
+				return fmt.Errorf("values row count (%d) does not match range rows (%d)", len(in.Values), rows)
+			}
+			for i := range in.Values {
+				if len(in.Values[i]) != cols {
+					return fmt.Errorf("values column count at row %d (%d) does not match range cols (%d)", i, len(in.Values[i]), cols)
+				}
+			}
+			cells := rows * cols
+			if cells > limits.MaxCellsPerOp {
+				return fmt.Errorf("payload exceeds max cells per operation: %d > %d", cells, limits.MaxCellsPerOp)
+			}
+
+			sw, err := f.NewStreamWriter(sheet)
+			if err != nil {
+				return err
+			}
+			// Write each row in ascending order
+			for r := 0; r < rows; r++ {
+				startCell, _ := excelize.CoordinatesToCellName(x1, y1+r)
+				// Convert []string to []interface{}
+				rowVals := make([]interface{}, cols)
+				for c := 0; c < cols; c++ {
+					rowVals[c] = in.Values[r][c]
+				}
+				if err := sw.SetRow(startCell, rowVals); err != nil {
+					return err
+				}
+			}
+			if err := sw.Flush(); err != nil {
+				return err
+			}
+			// Persist changes to disk
+			if err := f.Save(); err != nil {
+				return err
+			}
+			updated = cells
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, workbooks.ErrHandleNotFound) {
+				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+			}
+			lower := strings.ToLower(err.Error())
+			if strings.Contains(lower, "invalid range") || strings.Contains(lower, "coordinates") {
+				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
+			}
+			if strings.Contains(lower, "payload exceeds") {
+				return mcp.NewToolResultError("PAYLOAD_TOO_LARGE: reduce range size or split into batches"), nil
+			}
+			if strings.Contains(lower, "doesn't exist") {
+				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("WRITE_FAILED: %v", err)), nil
+		}
+
+		out := WriteRangeOutput{
+			WorkbookID:   id,
+			Sheet:        sheet,
+			RangeA1:      rng,
+			CellsUpdated: updated,
+			Idempotent:   false,
+		}
+		summary := fmt.Sprintf("updated=%d nonIdempotent=true", updated)
+		return mcp.NewToolResultStructured(out, summary), nil
+	}))
+	reg.Register(writeRange)
+
+	// apply_formula
+	type ApplyFormulaInput struct {
+		WorkbookID string `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
+		Sheet      string `json:"sheet" jsonschema_description:"Target sheet name"`
+		RangeA1    string `json:"range" jsonschema_description:"Target A1 range to apply the formula"`
+		Formula    string `json:"formula" jsonschema_description:"Formula string (e.g., =SUM(A1:B1))"`
+	}
+	type ApplyFormulaOutput struct {
+		WorkbookID string `json:"workbook_id"`
+		Sheet      string `json:"sheet"`
+		RangeA1    string `json:"range"`
+		CellsSet   int    `json:"cellsSet"`
+		Idempotent bool   `json:"idempotent"`
+	}
+
+	applyFormula := mcp.NewTool(
+		"apply_formula",
+		mcp.WithDescription("Apply a formula to each cell in the given range"),
+		mcp.WithInputSchema[ApplyFormulaInput](),
+		mcp.WithOutputSchema[ApplyFormulaOutput](),
+	)
+	s.AddTool(applyFormula, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ApplyFormulaInput) (*mcp.CallToolResult, error) {
+		id := strings.TrimSpace(in.WorkbookID)
+		sheet := strings.TrimSpace(in.Sheet)
+		rng := strings.TrimSpace(in.RangeA1)
+		formula := strings.TrimSpace(in.Formula)
+		if id == "" || sheet == "" || rng == "" || formula == "" {
+			return mcp.NewToolResultError("VALIDATION: workbook_id, sheet, range, and formula are required"), nil
+		}
+
+		var cellsSet int
+		err := mgr.WithWrite(id, func(f *excelize.File) error {
+			x1, y1, x2, y2, resolved, perr := resolveRange(f, sheet, rng)
+			if perr != nil {
+				return perr
+			}
+			rng = resolved
+			rows := y2 - y1 + 1
+			cols := x2 - x1 + 1
+			cells := rows * cols
+			if cells > limits.MaxCellsPerOp {
+				return fmt.Errorf("payload exceeds max cells per operation: %d > %d", cells, limits.MaxCellsPerOp)
+			}
+			// Apply formula per cell; Excel interprets relative references appropriately
+			for r := y1; r <= y2; r++ {
+				for c := x1; c <= x2; c++ {
+					cell, _ := excelize.CoordinatesToCellName(c, r)
+					if err := f.SetCellFormula(sheet, cell, formula); err != nil {
+						return err
+					}
+					cellsSet++
+				}
+			}
+			if err := f.Save(); err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, workbooks.ErrHandleNotFound) {
+				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+			}
+			lower := strings.ToLower(err.Error())
+			if strings.Contains(lower, "invalid range") || strings.Contains(lower, "coordinates") {
+				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
+			}
+			if strings.Contains(lower, "exceeds max cells") {
+				return mcp.NewToolResultError("PAYLOAD_TOO_LARGE: reduce range size or split into batches"), nil
+			}
+			if strings.Contains(lower, "doesn't exist") {
+				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("APPLY_FORMULA_FAILED: %v", err)), nil
+		}
+
+		out := ApplyFormulaOutput{WorkbookID: id, Sheet: sheet, RangeA1: rng, CellsSet: cellsSet, Idempotent: false}
+		summary := fmt.Sprintf("formulas_applied=%d nonIdempotent=true", cellsSet)
+		return mcp.NewToolResultStructured(out, summary), nil
+	}))
+	reg.Register(applyFormula)
+
 	// Annotate tool capability flags via log-friendly text until telemetry middleware is added
-	_ = fmt.Sprintf("foundation tools registered: %d", 5)
+	_ = fmt.Sprintf("foundation tools registered: %d", 7)
+}
+
+// resolveRange parses an A1-style range or resolves a named range into coordinates.
+// It returns x1,y1,x2,y2 and the resolved textual range (without sheet qualifier).
+func resolveRange(f *excelize.File, sheet, input string) (int, int, int, int, string, error) {
+	in := strings.TrimSpace(input)
+	// If input contains '!' then it may specify a sheet-qualified range.
+	if strings.Contains(in, "!") {
+		parts := strings.SplitN(in, "!", 2)
+		if len(parts) == 2 {
+			s := strings.Trim(parts[0], "'")
+			if s != "" && !strings.EqualFold(s, sheet) {
+				return 0, 0, 0, 0, "", fmt.Errorf("invalid range: sheet mismatch")
+			}
+			in = parts[1]
+		}
+	}
+	// Normal A1 range like A1:D50
+	if strings.Contains(in, ":") {
+		parts := strings.Split(in, ":")
+		if len(parts) != 2 {
+			return 0, 0, 0, 0, "", fmt.Errorf("invalid range: %s", input)
+		}
+		x1, y1, err1 := excelize.CellNameToCoordinates(parts[0])
+		x2, y2, err2 := excelize.CellNameToCoordinates(parts[1])
+		if err1 != nil || err2 != nil {
+			return 0, 0, 0, 0, "", fmt.Errorf("invalid range coordinates")
+		}
+		if x2 < x1 {
+			x1, x2 = x2, x1
+		}
+		if y2 < y1 {
+			y1, y2 = y2, y1
+		}
+		// return normalized range text
+		left, _ := excelize.CoordinatesToCellName(x1, y1)
+		right, _ := excelize.CoordinatesToCellName(x2, y2)
+		return x1, y1, x2, y2, left + ":" + right, nil
+	}
+	// Treat as a defined (named) range; find first that matches the sheet
+	// Note: DefinedName.RefersTo typically looks like 'Sheet1!$A$1:$B$2'
+	names := f.GetDefinedName()
+	for _, dn := range names {
+		if dn.Name == input {
+			refers := dn.RefersTo
+			// Remove leading '=' if present
+			refers = strings.TrimPrefix(refers, "=")
+			// If refers contains '!' and a sheet name, strip it since we already have the sheet param
+			if strings.Contains(refers, "!") {
+				parts := strings.SplitN(refers, "!", 2)
+				if len(parts) == 2 {
+					s := strings.Trim(parts[0], "'")
+					if s != "" && !strings.EqualFold(s, sheet) {
+						continue // not our sheet
+					}
+					refers = parts[1]
+				}
+			}
+			// Now parse the range part after optional sheet qualifier
+			if strings.Contains(refers, ":") {
+				p := strings.Split(refers, ":")
+				if len(p) != 2 {
+					continue
+				}
+				// Remove any absolute markers '$'
+				a := strings.ReplaceAll(p[0], "$", "")
+				b := strings.ReplaceAll(p[1], "$", "")
+				x1, y1, e1 := excelize.CellNameToCoordinates(a)
+				x2, y2, e2 := excelize.CellNameToCoordinates(b)
+				if e1 != nil || e2 != nil {
+					continue
+				}
+				if x2 < x1 {
+					x1, x2 = x2, x1
+				}
+				if y2 < y1 {
+					y1, y2 = y2, y1
+				}
+				left, _ := excelize.CoordinatesToCellName(x1, y1)
+				right, _ := excelize.CoordinatesToCellName(x2, y2)
+				return x1, y1, x2, y2, left + ":" + right, nil
+			}
+		}
+	}
+	return 0, 0, 0, 0, "", fmt.Errorf("invalid or unsupported range: %s", input)
 }
 
 // errorsIsHandleNotFound reports whether the error is from the workbooks package
