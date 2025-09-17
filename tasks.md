@@ -6,7 +6,7 @@
   - Provide developer ergonomics: make targets for `go test`, `go fmt`, race runs, and scripts for large workbook fixtures.
   - _Requirements: 15.1, 15.3_
 
-- [ ] 2. Stand up MCP server bootstrap and lifecycle management
+- [x] 2. Stand up MCP server bootstrap and lifecycle management
   - Initialize `server.NewMCPServer` with `WithToolCapabilities`, `WithResourceCapabilities`, `WithRecovery`, hooks, and middleware following mark3labs/mcp-go advanced server patterns.
   - Implement `ServeStdio` startup with graceful shutdown handler (`context.WithTimeout`, signal capture) and panic-safe logging hooks.
   - Wire base telemetry hook invocations for session registration, tool calls, and resource reads.
