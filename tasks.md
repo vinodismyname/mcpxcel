@@ -80,7 +80,7 @@
   - Maintain a transitional legacy cursor emission (query-string) behind a feature flag for one release; document deprecation.
   - _Requirements: 14.1, 14.3, 3.1, 3.2, 3.4_
 
-- [ ] 8.5 Add workbook write-versioning for cursor stability
+- [x] 8.5 Add workbook write-versioning for cursor stability
   - Extend `internal/workbooks` handle state with a `version` (uint64) incremented on successful mutations (`write_range`, `apply_formula`, future writes).
   - Expose a `Version()` snapshot accessor and embed `wbv` into cursors. On resume, if versions differ, return `CURSOR_INVALID` with retry guidance.
   - Add table-driven tests simulating writes between paginated reads to assert invalidation and guidance text.

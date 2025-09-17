@@ -16,11 +16,14 @@ import (
 
 // Handle represents an in-memory workbook reference paired with metadata for TTL eviction.
 type Handle struct {
-	ID        string
-	File      *excelize.File
-	LoadedAt  time.Time
-	ExpiresAt time.Time
-	mu        sync.RWMutex
+    ID        string
+    File      *excelize.File
+    LoadedAt  time.Time
+    ExpiresAt time.Time
+    mu        sync.RWMutex
+    // version increments after each successful write to provide
+    // cursor stability under concurrent mutations.
+    version int64
 }
 
 // WorkbookGate coordinates capacity for open workbook handles (backed by runtime.Controller).
@@ -227,25 +230,33 @@ func (m *Manager) Get(id string) (*Handle, bool) {
 }
 
 // WithRead obtains a shared read lock for the handle and executes fn.
-func (m *Manager) WithRead(id string, fn func(*excelize.File) error) error {
-	h, ok := m.Get(id)
-	if !ok {
-		return ErrHandleNotFound
-	}
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return fn(h.File)
+func (m *Manager) WithRead(id string, fn func(*excelize.File, int64) error) error {
+    h, ok := m.Get(id)
+    if !ok {
+        return ErrHandleNotFound
+    }
+    h.mu.RLock()
+    defer h.mu.RUnlock()
+    // Pass a snapshot of the workbook version under the read lock so
+    // callers can validate pagination cursors atomically with the read.
+    return fn(h.File, h.version)
 }
 
 // WithWrite obtains an exclusive write lock for the handle and executes fn.
 func (m *Manager) WithWrite(id string, fn func(*excelize.File) error) error {
-	h, ok := m.Get(id)
-	if !ok {
-		return ErrHandleNotFound
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return fn(h.File)
+    h, ok := m.Get(id)
+    if !ok {
+        return ErrHandleNotFound
+    }
+    h.mu.Lock()
+    defer h.mu.Unlock()
+    if err := fn(h.File); err != nil {
+        return err
+    }
+    // Successful write: bump workbook version so cursors embedding a
+    // prior snapshot can be detected as stale.
+    h.version++
+    return nil
 }
 
 // CloseHandle closes and removes a handle by ID, releasing capacity via the gate.

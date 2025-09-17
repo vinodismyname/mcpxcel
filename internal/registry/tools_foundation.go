@@ -19,6 +19,8 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+var errCursorWbvMismatch = errors.New("cursor wbv mismatch")
+
 // --- Input / Output Schemas (typed for discovery) ---
 
 // OpenWorkbookInput defines parameters for opening a workbook.
@@ -189,7 +191,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		output.WorkbookID = id
 		output.MetadataOnly = in.MetadataOnly
 
-		err := mgr.WithRead(id, func(f *excelize.File) error {
+	err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
 			// Gather sheet names in index order
 			sheetMap := f.GetSheetMap()
 			idx := make([]int, 0, len(sheetMap))
@@ -303,7 +305,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		meta := PageMeta{}
 		// Accumulate preview in selected encoding
 		var textOut string
-		err := mgr.WithRead(id, func(f *excelize.File) error {
+	err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
 			// Total rows from dimension when available
 			if dim, derr := f.GetSheetDimension(sheet); derr == nil && dim != "" {
 				parts := strings.Split(dim, ":")
@@ -429,44 +431,51 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			maxCells = limits.MaxCellsPerOp
 		}
 		// Cursor precedence: when provided, override sheet/range/maxCells from token
-    var startOffset int
-    if curTok != "" {
-        pc, derr := pagination.DecodeCursor(curTok)
-        if derr != nil {
-            return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
-        }
-			if pc.Wid != id {
-				return mcp.NewToolResultError("CURSOR_INVALID: cursor workbook does not match provided workbook_id"), nil
-			}
-			if pc.U != pagination.UnitCells {
-				return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; read_range expects cells"), nil
-			}
-			// Override inputs using cursor values
-			sheet = pc.S
-			rng = pc.R
-			startOffset = pc.Off
-        if pc.Ps > 0 && pc.Ps < maxCells {
-            maxCells = pc.Ps
-        }
-    } else {
-			if sheet == "" || rng == "" {
-				return mcp.NewToolResultError("VALIDATION: sheet and range are required (or supply cursor)"), nil
-			}
+	var startOffset int
+	var parsedCur *pagination.Cursor
+	if curTok != "" {
+		pc, derr := pagination.DecodeCursor(curTok)
+		if derr != nil {
+			return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
 		}
+		if pc.Wid != id {
+			return mcp.NewToolResultError("CURSOR_INVALID: cursor workbook does not match provided workbook_id"), nil
+		}
+		if pc.U != pagination.UnitCells {
+			return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; read_range expects cells"), nil
+		}
+		// Override inputs using cursor values
+		sheet = pc.S
+		rng = pc.R
+		startOffset = pc.Off
+		if pc.Ps > 0 && pc.Ps < maxCells {
+			maxCells = pc.Ps
+		}
+		parsedCur = pc
+	} else {
+		if sheet == "" || rng == "" {
+			return mcp.NewToolResultError("VALIDATION: sheet and range are required (or supply cursor)"), nil
+		}
+	}
 
 		// We will build a JSON array-of-arrays payload in text form to keep memory bounded
 		var textOut string
 		var meta PageMeta
 		var outRange = rng
 
-		err := mgr.WithRead(id, func(f *excelize.File) error {
-			// Resolve named range if needed
-			var x1, y1, x2, y2 int
-			var parseErr error
-			x1, y1, x2, y2, outRange, parseErr = resolveRange(f, sheet, rng)
-			if parseErr != nil {
-				return parseErr
-			}
+	err := mgr.WithRead(id, func(f *excelize.File, wbvNow int64) error {
+		// If resuming from a cursor, validate the workbook version snapshot under the
+		// read lock to avoid races with concurrent writers.
+		if parsedCur != nil && parsedCur.Wbv > 0 && parsedCur.Wbv != wbvNow {
+			return errCursorWbvMismatch
+		}
+		// Resolve named range if needed
+		var x1, y1, x2, y2 int
+		var parseErr error
+		x1, y1, x2, y2, outRange, parseErr = resolveRange(f, sheet, rng)
+		if parseErr != nil {
+			return parseErr
+		}
 
 			if x2 < x1 || y2 < y1 {
 				return fmt.Errorf("invalid range bounds after parse")
@@ -545,7 +554,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 					U:   pagination.UnitCells,
 					Off: pagination.NextOffset(startOffset, writtenCells),
 					Ps:  maxCells,
-					Wbv: 0, // updated by task 8.5
+					Wbv: wbvNow,
 				}
 				token, _ := pagination.EncodeCursor(next)
 				// Legacy emission behind feature flag: MCPXCEL_EMIT_LEGACY_CURSOR=true
@@ -560,6 +569,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		if err != nil {
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+			}
+			if errors.Is(err, errCursorWbvMismatch) {
+				return mcp.NewToolResultError("CURSOR_INVALID: workbook changed since cursor was issued; reopen workbook or restart pagination"), nil
 			}
 			// Map validation-ish errors
 			lower := strings.ToLower(err.Error())
