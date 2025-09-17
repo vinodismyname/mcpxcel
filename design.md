@@ -241,6 +241,75 @@ sequenceDiagram
    MCP-->>Client: Summary + stats + truncation metadata
 ```
 
+## Pagination Cursors
+
+### Goals
+
+- Provide stable, resumable pagination across tools (read_range, preview_sheet, search_data, filter_data) even under concurrent writes.
+- Keep tokens opaque to clients while allowing the server to evolve fields safely.
+- Ensure responses always include `total`, `returned`, `truncated`, and `nextCursor` (Requirement 14.1).
+
+### Token Format
+
+- Cursor is an opaque, URL-safe base64-encoded JSON object (compact/minified). Example (JSON before encoding):
+
+  {
+    "v": 1,
+    "wid": "<workbook_id>",
+    "s": "Sheet1",
+    "r": "A1:D100",
+    "u": "cells",          // unit: "cells" | "rows"
+    "off": 200,             // offset in the chosen unit
+    "ps": 1000,             // page size in unit
+    "wbv": 7,               // workbook mutation version snapshot
+    "iat": 1726600000,      // issued-at (unix seconds)
+    // tool-specific fields (optional)
+    "qh": "<query_hash>",  // search_data
+    "ph": "<pred_hash>"    // filter_data
+  }
+
+- Fields are intentionally short to minimize payload overhead. The token is treated as opaque by clients.
+
+### Tool Semantics
+
+- All paginated tools accept an optional `cursor` input. When present, it takes precedence over other positional inputs (e.g., `sheet`, `range`, `max_cells`).
+- Tools emit `nextCursor` using the opaque format. When no further data remains, `nextCursor` is omitted and `truncated=false`.
+- Units by tool:
+  - read_range: `u=cells` (row-major), offset counts cells written so far.
+  - preview_sheet: `u=rows`, offset counts rows emitted so far.
+  - search_data and filter_data: `u=rows` for result rows; include `qh`/`ph` to guarantee the cursor binds to the same parameters.
+
+### Stability Under Writes
+
+- The workbook manager maintains a per-handle mutation counter (`wbv`). Write tools (write_range, apply_formula, and future mutators) increment this counter upon successful commit.
+- Cursors embed the `wbv` snapshot at issuance. On resume, if the current handle version differs from the cursor `wbv`, the server SHALL return `CURSOR_INVALID` with guidance to restart the page or re-run the query narrowed in scope. This satisfies Requirement 14.1 by avoiding duplicates/gaps after mid-stream writes.
+
+### Resume Computation
+
+- read_range (u=cells):
+  - Given normalized `A1:D100` → (x1,y1,x2,y2) and `off` cells, compute:
+    - cols = x2 - x1 + 1
+    - startRow = y1 + off / cols
+    - startCol = x1 + off % cols
+  - Iterate row-major from (startCol,startRow), honoring page size (`ps`) and global caps.
+- preview_sheet (u=rows): resume at `y = header_row + 1 + off` and continue for `ps` rows.
+- search/filter: resume from result index `off`, recomputing matches deterministically for the same query/predicate hash.
+
+### Backward Compatibility
+
+- For one release, read_range and preview_sheet MAY continue emitting the legacy query-string style cursor for clients that rely on it. The opaque cursor becomes the canonical field; legacy format is deprecated and will be removed after migration.
+
+### Security & Size
+
+- Cursors MUST NOT include filesystem paths or absolute locations; only the workbook handle ID is included.
+- Cursor lifetime is tied to handle TTLs; servers MAY reject stale cursors after handle expiration with `CURSOR_INVALID`.
+- Encoding is URL-safe base64 to avoid escaping concerns in transports and logs.
+
+### Error Semantics
+
+- `CURSOR_INVALID`: Returned when the cursor cannot be decoded, validation fails, the workbook handle is missing/expired, or the embedded `wbv` no longer matches the current handle version.
+- Responses include actionable guidance: reopen/refresh the workbook, restart pagination, or narrow scope.
+
 ## Implementation Guidelines
 
 ### Tool Registration & Validation

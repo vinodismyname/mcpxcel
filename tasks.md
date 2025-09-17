@@ -73,6 +73,25 @@
     - Offer optional preview via read_range pipeline while maintaining payload guardrails.
     - _Requirements: 7.1, 7.2, 7.3_
 
+- [ ] 8.4 Standardize pagination cursors and resume semantics
+  - Design and document an opaque, URL-safe base64 JSON cursor spec in `design.md` including fields: version, `workbook_id`, `sheet`, normalized `range`, `unit` (rows|cells), `offset`, `pageSize`, `wbVersion`, `issuedAt`, and tool-specific hashes (`queryHash`, `predicateHash`).
+  - Create `pkg/pagination` helpers for `EncodeCursor`, `DecodeCursor`, `NextOffset`, and validation (unit handling, bounds, required fields). Include fuzz tests for malformed tokens.
+  - Update `read_range` to accept an optional `cursor` param that takes precedence over `sheet/range/max_cells`; compute resume start from the token; emit opaque `nextCursor`.
+  - Maintain a transitional legacy cursor emission (query-string) behind a feature flag for one release; document deprecation.
+  - _Requirements: 14.1, 14.3, 3.1, 3.2, 3.4_
+
+- [ ] 8.5 Add workbook write-versioning for cursor stability
+  - Extend `internal/workbooks` handle state with a `version` (uint64) incremented on successful mutations (`write_range`, `apply_formula`, future writes).
+  - Expose a `Version()` snapshot accessor and embed `wbv` into cursors. On resume, if versions differ, return `CURSOR_INVALID` with retry guidance.
+  - Add table-driven tests simulating writes between paginated reads to assert invalidation and guidance text.
+  - _Requirements: 11.4, 12.3, 14.1, 14.2_
+
+- [ ] 8.6 Unify preview/search/filter cursor semantics
+  - Update `preview_sheet` to emit/accept the opaque cursor with `unit=rows` and row-based offset; preserve defaults for preview size.
+  - Define and adopt tool-specific fields for `search_data` (`queryHash`) and `filter_data` (`predicateHash`) to bind cursors to the same parameters across pages.
+  - Ensure all three tools return consistent metadata (`total`, `returned`, `truncated`, `nextCursor`) and validation on resume.
+  - _Requirements: 2.3, 2.4, 5.1, 5.2, 5.4, 8.1, 8.2, 8.4, 14.1_
+
 - [ ] 9. Implement data analysis, search, and filtering capabilities
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 5.1, 5.2, 5.3, 5.4, 8.1, 8.2, 8.3, 8.4_
   - [ ] 9.1 Build compute_statistics tool with streaming analysis
