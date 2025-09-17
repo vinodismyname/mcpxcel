@@ -55,19 +55,19 @@
     - Emit truncation guidance when previews exceed limits and advise targeted range calls.
     - _Requirements: 2.3, 2.4, 3.4, 14.1_
 
-- [ ] 8. Create data access and manipulation tools
+- [x] 8. Create data access and manipulation tools
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 6.1, 6.2, 6.3, 6.4, 7.1, 7.2, 7.3, 11.3, 11.4, 12.3, 14.1_
-  - [ ] 8.1 Implement read_range tool with streaming and pagination
+  - [x] 8.1 Implement read_range tool with streaming and pagination
     - Parse A1 ranges (support named ranges) with validation and clamp to configured cell/payload limits.
     - Stream results via `Rows.Columns()` while holding workbook read locks, handling sparse rows, and calling `rows.Close()`.
     - Maintain deterministic pagination with stable cursors and idempotent responses across retries.
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 11.3, 14.1_
-  - [ ] 8.2 Build write_range tool with transactional operations
+  - [x] 8.2 Build write_range tool with transactional operations
     - Serialize workbook writes with per-handle locks, buffering updates via Excelize `StreamWriter` (ascending row order) and flushing results.
     - Validate payload size, cell counts, and formulas before commit; roll back on partial failures and label non-idempotent mutations.
     - Return cell counts, diff metadata, and retry instructions distinguishing safe vs unsafe retries.
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 11.4, 12.3_
-  - [ ] 8.3 Create apply_formula tool for bulk calculations
+  - [x] 8.3 Create apply_formula tool for bulk calculations
     - Apply formulas using batch helpers, respecting workbook locks and configurable slice sizes to avoid memory spikes.
     - Validate formula syntax, dependency range, and provide rollback plus conflict warnings when overwriting existing formulas.
     - Offer optional preview via read_range pipeline while maintaining payload guardrails.
