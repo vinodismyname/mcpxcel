@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Onboarding & Required Reading
-Before coding, review `steering/product.md`, `steering/structure.md`, `steering/tech.md`, `design.md`, `requirements.md`, and `tasks.md`. Mark completed checklist items directly in `tasks.md` and create a Git commit immediately after each task is checked off. Use the MCP helpers (`octodoc`, `ref`) for specs, design notes, and dependency docs before implementing changes.
+Before coding, You must first read `steering/product.md`, `steering/structure.md`, `steering/tech.md`, `design.md`, `requirements.md`, and `tasks.md`. Mark completed checklist items directly in `tasks.md` and create a Git commit immediately after each task is checked off. Use the MCP tools (`octodoc`, `ref`) to search and get task relavant documentation/references that will help you with the implementation before implementing changes.
 
 ## Project Structure & Module Organization
 - `cmd/server`: MCP server entrypoint and CLI wiring.
