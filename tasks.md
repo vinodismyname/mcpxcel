@@ -77,7 +77,7 @@
   - Design and document an opaque, URL-safe base64 JSON cursor spec in `design.md` including fields: version, `workbook_id`, `sheet`, normalized `range`, `unit` (rows|cells), `offset`, `pageSize`, `wbVersion`, `issuedAt`, and tool-specific hashes (`queryHash`, `predicateHash`).
   - Create `pkg/pagination` helpers for `EncodeCursor`, `DecodeCursor`, `NextOffset`, and validation (unit handling, bounds, required fields). Include fuzz tests for malformed tokens.
   - Update `read_range` to accept an optional `cursor` param that takes precedence over `sheet/range/max_cells`; compute resume start from the token; emit opaque `nextCursor`.
-  - Maintain a transitional legacy cursor emission (query-string) behind a feature flag for one release; document deprecation.
+  - Emit only opaque cursors; legacy query-string cursors removed pre‑GA (no env flag fallback).
   - _Requirements: 14.1, 14.3, 3.1, 3.2, 3.4_
 
 - [x] 8.5 Add workbook write-versioning for cursor stability
@@ -101,12 +101,12 @@
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
   - [ ] 9.2 Implement search_data tool with pattern matching
     - Use Excelize `SearchSheet` for literal/regex searches with column filters, batching results to respect match caps.
-    - Provide pagination cursors, total match counts, and bounded context rows per hit.
+    - Provide opaque pagination cursors (unit=rows) embedding `queryHash` (`qh`); include total match counts and bounded context rows per hit; validate `wbv` and `qh` on resume and return `CURSOR_INVALID` when mismatched.
     - Emit empty result payloads with zero totals when no matches are found.
     - _Requirements: 5.1, 5.2, 5.3, 5.4_
   - [ ] 9.3 Build filter_data tool with predicate engine
     - Implement filter expression parser (comparisons, logical operators) and evaluate rows via streaming iteration.
-    - Support configurable row limits, pagination, and stable cursor semantics aligned with read_range metadata.
+    - Support configurable row limits and opaque pagination cursors (unit=rows) embedding `predicateHash` (`ph`); validate `wbv` and `ph` on resume and return `CURSOR_INVALID` when mismatched; align metadata with read_range.
     - Return validation errors for unsupported operators with corrective guidance.
     - _Requirements: 8.1, 8.2, 8.3, 8.4_
 
