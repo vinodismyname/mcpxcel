@@ -1,20 +1,21 @@
 package main
 
 import (
-	"context"
-	"flag"
-	"fmt"
-	"os"
-	"time"
+    "context"
+    "flag"
+    "fmt"
+    "os"
+    "time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/rs/zerolog"
-	zlog "github.com/rs/zerolog/log"
+    zlog "github.com/rs/zerolog/log"
 
-	"github.com/vinoddu/mcpxcel/internal/registry"
-	"github.com/vinoddu/mcpxcel/internal/runtime"
-	"github.com/vinoddu/mcpxcel/pkg/version"
+    "github.com/vinoddu/mcpxcel/internal/registry"
+    "github.com/vinoddu/mcpxcel/internal/runtime"
+    "github.com/vinoddu/mcpxcel/internal/security"
+    "github.com/vinoddu/mcpxcel/pkg/version"
 )
 
 func main() {
@@ -30,11 +31,25 @@ func main() {
 	flag.Parse()
 
 	logger := zlog.With().Str("service", "mcpxcel-server").Logger()
-	ctx := logger.WithContext(context.Background())
+    ctx := logger.WithContext(context.Background())
 
-	limits := runtime.NewLimits(10, 4)
-	runtimeController := runtime.NewController(limits)
-	runtimeMW := runtime.NewMiddleware(runtimeController)
+    // Security: validate allow-list directories on startup (fail-safe on error)
+    secMgr, err := security.NewManagerFromEnv()
+    if err != nil {
+        logger.Error().Err(err).Msg("security: failed to initialize manager from env")
+        fmt.Fprintln(os.Stderr, "invalid security configuration; set MCPXCEL_ALLOWED_DIRS")
+        os.Exit(1)
+    }
+    if err := secMgr.ValidateConfig(); err != nil {
+        logger.Error().Err(err).Msg("security: invalid allow-list configuration")
+        fmt.Fprintln(os.Stderr, "no allowed directories configured; set MCPXCEL_ALLOWED_DIRS")
+        os.Exit(1)
+    }
+    logger.Info().Strs("allowed_dirs", secMgr.AllowedDirectories()).Msg("security allow-list configured")
+
+    limits := runtime.NewLimits(10, 4)
+    runtimeController := runtime.NewController(limits)
+    runtimeMW := runtime.NewMiddleware(runtimeController)
 
 	toolRegistry := registry.New()
 

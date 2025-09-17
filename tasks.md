@@ -24,7 +24,7 @@
   - Ensure every tool accepts workbook IDs on each call (stateless operations) and validates handle existence before use.
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 10.1, 10.2, 10.3, 10.4, 11.1, 11.2, 12.2_
 
-- [ ] 5. Build filesystem security and path validation guardrails
+- [x] 5. Build filesystem security and path validation guardrails
   - Construct allow-list policy resolving absolute paths, preventing traversal, and validating extensions before open/write operations.
   - Surface permission errors with actionable codes and log audit events for accepted/denied access attempts.
   - Add directory configuration validation on startup with fail-safe behavior and telemetry hooks.

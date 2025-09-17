@@ -31,14 +31,15 @@ type WorkbookGate interface {
 
 // Manager provides lifecycle hooks for opening and closing workbooks and a stateless handle cache.
 type Manager struct {
-	mu           sync.RWMutex
-	handles      map[string]*Handle
-	ttl          time.Duration
-	cleanupEvery time.Duration
-	clock        func() time.Time
-	gate         WorkbookGate
-	stopCh       chan struct{}
-	cleanupWG    sync.WaitGroup
+    mu           sync.RWMutex
+    handles      map[string]*Handle
+    ttl          time.Duration
+    cleanupEvery time.Duration
+    clock        func() time.Time
+    gate         WorkbookGate
+    stopCh       chan struct{}
+    cleanupWG    sync.WaitGroup
+    validator    PathValidator
 }
 
 // NewManager constructs a lifecycle manager with TTL-bearing handle cache.
@@ -54,14 +55,14 @@ func NewManager(ttl, cleanupEvery time.Duration, gate WorkbookGate, clock func()
 	if clock == nil {
 		clock = time.Now
 	}
-	return &Manager{
-		handles:      make(map[string]*Handle),
-		ttl:          ttl,
-		cleanupEvery: cleanupEvery,
-		clock:        clock,
-		gate:         gate,
-		stopCh:       make(chan struct{}),
-	}
+    return &Manager{
+        handles:      make(map[string]*Handle),
+        ttl:          ttl,
+        cleanupEvery: cleanupEvery,
+        clock:        clock,
+        gate:         gate,
+        stopCh:       make(chan struct{}),
+    }
 }
 
 // Start launches periodic eviction of expired handles.
@@ -136,25 +137,35 @@ var ErrHandleNotFound = errors.New("workbooks: handle not found")
 // Open opens a workbook from the given path, registers a TTL-bearing handle, and returns its ID.
 // The manager enforces open-workbook capacity via the gate when provided.
 func (m *Manager) Open(ctx context.Context, path string) (string, error) {
-	if err := m.acquire(ctx); err != nil {
-		return "", err
-	}
+    if err := m.acquire(ctx); err != nil {
+        return "", err
+    }
 
-	// Basic format validation; detailed allow-list checks are handled by the security module in later tasks.
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".xlsx", ".xlsm", ".xltx", ".xltm":
-		// allowed Excel formats
-	default:
-		m.release()
-		return "", fmt.Errorf("workbooks: unsupported format: %s", ext)
-	}
+    // Basic format validation; detailed allow-list checks are handled by the security module in later tasks.
+    ext := strings.ToLower(filepath.Ext(path))
+    switch ext {
+    case ".xlsx", ".xlsm", ".xltx", ".xltm":
+        // allowed Excel formats
+    default:
+        m.release()
+        return "", fmt.Errorf("workbooks: unsupported format: %s", ext)
+    }
 
-	f, err := excelize.OpenFile(path)
-	if err != nil {
-		m.release()
-		return "", err
-	}
+    // Optional path validation via security manager when provided.
+    if m.validator != nil {
+        canonical, err := m.validator.ValidateOpenPath(path)
+        if err != nil {
+            m.release()
+            return "", err
+        }
+        path = canonical
+    }
+
+    f, err := excelize.OpenFile(path)
+    if err != nil {
+        m.release()
+        return "", err
+    }
 	id := uuid.NewString()
 	h, err := m.NewHandle(id, f, m.ttl)
 	if err != nil {
@@ -320,8 +331,14 @@ func (h *Handle) Close(ctx context.Context) error {
 
 // Expired reports whether the handle has reached its TTL.
 func (h *Handle) Expired(now time.Time) bool {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+    h.mu.RLock()
+    defer h.mu.RUnlock()
 
-	return now.After(h.ExpiresAt)
+    return now.After(h.ExpiresAt)
+}
+
+// PathValidator abstracts filesystem path validation. Implementations should
+// return a canonical absolute path if allowed, or an error when denied.
+type PathValidator interface {
+    ValidateOpenPath(path string) (string, error)
 }
