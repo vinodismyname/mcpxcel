@@ -143,13 +143,13 @@ func TestOpen_UnsupportedFormatReleasesGate(t *testing.T) {
 }
 
 func TestOpen_GateBusy(t *testing.T) {
-    gate := &fakeGate{acquireErr: context.DeadlineExceeded}
-    m := NewManager(time.Second, time.Second, gate, time.Now)
+	gate := &fakeGate{acquireErr: context.DeadlineExceeded}
+	m := NewManager(time.Second, time.Second, gate, time.Now)
 
-    _, err := m.Open(context.Background(), "sheet.xlsx")
-    require.Error(t, err)
-    require.Equal(t, int64(1), gate.acquires.Load())
-    require.Equal(t, int64(0), gate.releases.Load())
+	_, err := m.Open(context.Background(), "sheet.xlsx")
+	require.Error(t, err)
+	require.Equal(t, int64(1), gate.acquires.Load())
+	require.Equal(t, int64(0), gate.releases.Load())
 }
 
 type denyValidator struct{}
@@ -157,13 +157,13 @@ type denyValidator struct{}
 func (denyValidator) ValidateOpenPath(string) (string, error) { return "", fmt.Errorf("denied") }
 
 func TestOpen_PathValidatorDenied_ReleasesGate(t *testing.T) {
-    gate := &fakeGate{}
-    m := NewManager(time.Second, time.Second, gate, time.Now)
-    // Inject a validator that denies access
-    m.validator = denyValidator{}
+	gate := &fakeGate{}
+	m := NewManager(time.Second, time.Second, gate, time.Now)
+	// Inject a validator that denies access
+	m.validator = denyValidator{}
 
-    _, err := m.Open(context.Background(), "ok.xlsx")
-    require.Error(t, err)
-    require.Equal(t, int64(1), gate.acquires.Load())
-    require.Equal(t, int64(1), gate.releases.Load())
+	_, err := m.Open(context.Background(), "ok.xlsx")
+	require.Error(t, err)
+	require.Equal(t, int64(1), gate.acquires.Load())
+	require.Equal(t, int64(1), gate.releases.Load())
 }
