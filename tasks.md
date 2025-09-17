@@ -39,6 +39,7 @@
 - [ ] 7. Implement workbook access and structure discovery tools
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5, 10.1, 10.2, 10.3, 10.4, 11.2_
   - [ ] 7.1 Create open_workbook tool with validation and handle management
+    - Inject `internal/security.Manager` into the workbook manager/registry at bootstrap so `Open` enforces allow-list validation.
     - Build typed handler that validates allow-listed paths, file size, and supported formats before registering handles with TTL cache.
     - Return workbook IDs, effective limits, and warnings (e.g., nearing payload caps) in MCP-compliant responses.
     - Map Excelize/open errors to `FILE_TOO_LARGE` or `UNSUPPORTED_FORMAT` tool errors with recovery guidance.
@@ -131,12 +132,13 @@
 - [ ] 13. Add telemetry, monitoring, and audit systems
   - Integrate logging middleware capturing session/tool/resource events with timing and error annotations.
   - Expose metrics for request latency, concurrency semaphore saturation, workbook cache hits, and LangChain durations.
-  - Emit audit logs for file access decisions and sensitive tool invocations with workbook IDs.
+  - Emit audit logs for file access decisions (allowed/denied) and sensitive tool invocations with workbook IDs.
   - _Requirements: 12.4, 13.4_
 
 - [ ] 14. Implement configuration management and deployment assets
   - Load hierarchical configuration (YAML + env + CLI) with validation, default limit documentation, and effective-value exposure.
   - Provide sample config files and documentation for tuning payload, concurrency, and directory guardrails.
+  - Document environment variable `MCPXCEL_ALLOWED_DIRS` (path list) in config docs and reference in design.md.
   - Create containerization and build scripts (multi-stage Dockerfile, non-root user) aligned with deployment best practices.
   - _Requirements: 15.1, 15.2, 15.3_
 
