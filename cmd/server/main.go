@@ -34,7 +34,7 @@ func main() {
 
 	limits := runtime.NewLimits(10, 4)
 	runtimeController := runtime.NewController(limits)
-	_ = runtimeController // wired into middleware in later tasks
+	runtimeMW := runtime.NewMiddleware(runtimeController)
 
 	toolRegistry := registry.New()
 
@@ -45,7 +45,7 @@ func main() {
 		server.WithResourceCapabilities(true, false),
 		server.WithRecovery(),
 		server.WithHooks(buildHooks(logger)),
-		// server.WithToolHandlerMiddleware(telemetry.NewLoggingMiddleware(logger).ToolMiddleware),
+		server.WithToolHandlerMiddleware(runtimeMW.ToolMiddleware),
 	)
 
 	toolContextSize := toolRegistry.ModelContextSize("gpt-4o")

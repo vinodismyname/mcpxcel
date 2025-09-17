@@ -2,28 +2,45 @@ package runtime
 
 import (
 	"context"
+	"time"
 
+	"github.com/vinoddu/mcpxcel/config"
 	"golang.org/x/sync/semaphore"
 )
 
 // Limits captures the concurrency and workbook guardrails configured for the server.
 type Limits struct {
+	// Concurrency caps
 	MaxConcurrentRequests int
 	MaxOpenWorkbooks      int
+
+	// Payload and row bounds
+	MaxPayloadBytes int
+	MaxCellsPerOp   int
+	PreviewRowLimit int
+
+	// Timeouts
+	OperationTimeout      time.Duration
+	AcquireRequestTimeout time.Duration
 }
 
 // NewLimits initializes Limits with sensible fallbacks when values are unset.
 func NewLimits(maxConcurrentRequests, maxOpenWorkbooks int) Limits {
 	if maxConcurrentRequests <= 0 {
-		maxConcurrentRequests = 1
+		maxConcurrentRequests = config.DefaultMaxConcurrentRequests
 	}
 	if maxOpenWorkbooks <= 0 {
-		maxOpenWorkbooks = 1
+		maxOpenWorkbooks = config.DefaultMaxOpenWorkbooks
 	}
 
 	return Limits{
 		MaxConcurrentRequests: maxConcurrentRequests,
 		MaxOpenWorkbooks:      maxOpenWorkbooks,
+		MaxPayloadBytes:       config.DefaultMaxPayloadBytes,
+		MaxCellsPerOp:         config.DefaultMaxCellsPerOp,
+		PreviewRowLimit:       config.DefaultPreviewRowLimit,
+		OperationTimeout:      config.DefaultOperationTimeout,
+		AcquireRequestTimeout: config.DefaultAcquireRequestTimeout,
 	}
 }
 

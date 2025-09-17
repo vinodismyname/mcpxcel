@@ -12,7 +12,7 @@
   - Wire base telemetry hook invocations for session registration, tool calls, and resource reads.
   - _Requirements: 16.1, 16.2_
 
-- [ ] 3. Implement runtime limits and concurrency controller
+- [x] 3. Implement runtime limits and concurrency controller
   - Build `RuntimeLimits` struct hydrated from configuration for payload, timeout, request, and workbook caps.
   - Create `RuntimeController` wrapping `semaphore.Weighted` controls for global request concurrency and max open workbooks with context-aware acquire/release.
   - Add middleware ensuring busy responses (`BUSY_RESOURCE`) or queue/backoff when limits are hit, emitting structured metrics counters.
