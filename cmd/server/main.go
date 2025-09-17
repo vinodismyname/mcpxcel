@@ -53,17 +53,23 @@ func main() {
 
 	toolRegistry := registry.New()
 
-	srv := server.NewMCPServer(
-		"MCP Excel Analysis Server",
-		version.Version(),
-		server.WithToolCapabilities(true),
-		server.WithResourceCapabilities(true, false),
-		server.WithRecovery(),
-		server.WithHooks(buildHooks(logger)),
-		server.WithToolHandlerMiddleware(runtimeMW.ToolMiddleware),
-	)
+    writeFilter := registry.NewWriteToolFilterFromEnv()
 
-	toolContextSize := toolRegistry.ModelContextSize("gpt-4o")
+    srv := server.NewMCPServer(
+        "MCP Excel Analysis Server",
+        version.Version(),
+        server.WithToolCapabilities(true),
+        server.WithResourceCapabilities(true, false),
+        server.WithRecovery(),
+        server.WithHooks(buildHooks(logger)),
+        server.WithToolHandlerMiddleware(runtimeMW.ToolMiddleware),
+        server.WithToolFilter(func(ctx context.Context, tools []mcp.Tool) []mcp.Tool { return writeFilter.FilterTools(ctx, tools) }),
+    )
+
+    // Register foundation tool schemas for discovery
+    registry.RegisterFoundationTools(srv, toolRegistry, runtimeController.LimitsSnapshot())
+
+    toolContextSize := toolRegistry.ModelContextSize("gpt-4o")
 
 	logger.Info().
 		Ctx(ctx).
@@ -74,14 +80,14 @@ func main() {
 		Bool("stdio", useStdio).
 		Msg("server bootstrap configured")
 
-	if useStdio {
-		if err := server.ServeStdio(srv); err != nil {
-			// Use stderr for transport errors so clients don't misinterpret output
-			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
+    if useStdio {
+        if err := server.ServeStdio(srv); err != nil {
+            // Use stderr for transport errors so clients don't misinterpret output
+            fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
+            os.Exit(1)
+        }
+        return
+    }
 
 	// If no transport flags provided, print usage and exit non-zero
 	fmt.Fprintln(os.Stderr, "no transport selected; use --stdio to run over stdio")

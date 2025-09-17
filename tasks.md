@@ -30,7 +30,7 @@
   - Add directory configuration validation on startup with fail-safe behavior and telemetry hooks.
   - _Requirements: 13.1, 13.2, 13.3, 13.4_
 
-- [ ] 6. Implement MCP tool and discovery registry foundation
+- [x] 6. Implement MCP tool and discovery registry foundation
   - Define typed tool metadata using `mcp.NewTool` plus `mcp.NewTypedToolHandler`, including parameter schemas, defaults, and descriptions.
   - Register tool filters and middleware for permission/context awareness (e.g., admin-gated writes) leveraging server tool filtering APIs.
   - Ensure `list_tools` surfaces schemas, default limits, and capability flags consistent with protocol expectations.
