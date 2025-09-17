@@ -329,10 +329,22 @@ func (m *Manager) acquire(ctx context.Context) error {
 }
 
 func (m *Manager) release() {
-	if m.gate == nil {
-		return
-	}
-	m.gate.ReleaseWorkbook()
+    if m.gate == nil {
+        return
+    }
+    m.gate.ReleaseWorkbook()
+}
+
+// VersionOf returns the current mutation version for a handle.
+// It acquires a read lock to snapshot the value safely.
+func (m *Manager) VersionOf(id string) (int64, error) {
+    h, ok := m.Get(id)
+    if !ok {
+        return 0, ErrHandleNotFound
+    }
+    h.mu.RLock()
+    defer h.mu.RUnlock()
+    return h.version, nil
 }
 
 // Close releases the underlying excelize file resources for a single handle.
