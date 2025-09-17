@@ -242,9 +242,30 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			return mcp.NewToolResultError(fmt.Sprintf("DISCOVERY_FAILED: %v", err)), nil
 		}
 
-		// Build a concise fallback text
-		fallback := fmt.Sprintf("sheets=%d metadata_only=%v", len(output.Sheets), output.MetadataOnly)
-		return mcp.NewToolResultStructured(output, fallback), nil
+		// Build a human-readable summary including sheet names and dimensions
+		var b strings.Builder
+		fmt.Fprintf(&b, "sheets=%d metadata_only=%v\n", len(output.Sheets), output.MetadataOnly)
+		for _, sh := range output.Sheets {
+			fmt.Fprintf(&b, "- %q rows=%d cols=%d", sh.Name, sh.RowCount, sh.ColumnCount)
+			if len(sh.Headers) > 0 {
+				// show up to first 8 headers to keep concise
+				max := len(sh.Headers)
+				if max > 8 {
+					max = 8
+				}
+				fmt.Fprintf(&b, " headers=%v", sh.Headers[:max])
+				if len(sh.Headers) > max {
+					b.WriteString("…")
+				}
+			}
+			b.WriteByte('\n')
+		}
+		summary := b.String()
+
+		res := mcp.NewToolResultStructured(output, summary)
+		// Ensure clients that ignore structured content still see the summary
+		res.Content = []mcp.Content{mcp.NewTextContent(summary)}
+		return res, nil
 	}))
 	reg.Register(listStructure)
 
