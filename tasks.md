@@ -18,7 +18,7 @@
   - Add middleware ensuring busy responses (`BUSY_RESOURCE`) or queue/backoff when limits are hit, emitting structured metrics counters.
   - _Requirements: 12.1, 12.2, 12.4, 15.1_
 
-- [ ] 4. Create workbook lifecycle manager and stateless handle cache
+- [x] 4. Create workbook lifecycle manager and stateless handle cache
   - Implement `WorkbookManager` with TTL-bearing handle records, UUID identifiers, and per-handle `sync.RWMutex` guarding concurrent reads vs writes.
   - Integrate Excelize open/close lifecycle so handles wrap `excelize.OpenFile`, enforce size/format checks, and release resources when TTL expires or explicit close is requested.
   - Ensure every tool accepts workbook IDs on each call (stateless operations) and validates handle existence before use.

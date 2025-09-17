@@ -15,6 +15,10 @@ const (
 	DefaultMaxPayloadBytes = 128 * 1024 // 128KB
 	DefaultMaxCellsPerOp   = 10_000
 	DefaultPreviewRowLimit = 10 // First 10 rows by default
+
+	// Workbook lifecycle
+	DefaultWorkbookIdleTTL       = 5 * time.Minute
+	DefaultWorkbookCleanupPeriod = 30 * time.Second
 )
 
 const (
