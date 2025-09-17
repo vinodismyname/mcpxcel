@@ -1,0 +1,9 @@
+# Build artifacts
+server
+cmd/server/server
+*.exe
+*.out
+*.test
+
+# OS files
+.DS_Store
