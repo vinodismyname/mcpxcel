@@ -5,5 +5,17 @@ cmd/server/server
 *.out
 *.test
 
+# Excel workbooks (block by default)
+*.xlsx
+*.xlsm
+*.xltx
+*.xltm
+
+# Allow sanitized fixtures only under testdata/
+!testdata/*.xlsx
+!testdata/*.xlsm
+!testdata/*.xltx
+!testdata/*.xltm
+
 # OS files
 .DS_Store
