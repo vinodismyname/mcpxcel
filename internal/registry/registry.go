@@ -1,12 +1,12 @@
 package registry
 
 import (
-    "context"
-    "sort"
-    "sync"
+	"context"
+	"sort"
+	"sync"
 
-    "github.com/mark3labs/mcp-go/mcp"
-    "github.com/tmc/langchaingo/llms"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/tmc/langchaingo/llms"
 )
 
 // ToolProvider resolves MCP tool definitions and associates runtime metadata.
@@ -16,9 +16,9 @@ type ToolProvider interface {
 
 // Registry maintains tool definitions and optional LLM providers for analytical workflows.
 type Registry struct {
-    mu    sync.RWMutex
-    tools map[string]mcp.Tool
-    model llms.Model
+	mu    sync.RWMutex
+	tools map[string]mcp.Tool
+	model llms.Model
 }
 
 // New constructs an empty Registry ready for tool population.
@@ -38,18 +38,18 @@ func (r *Registry) WithModel(model llms.Model) {
 
 // Register stores a tool definition for discovery.
 func (r *Registry) Register(tool mcp.Tool) {
-    r.mu.Lock()
-    defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-    r.tools[tool.Name] = tool
+	r.tools[tool.Name] = tool
 }
 
 // Get returns a tool by name when present.
 func (r *Registry) Get(name string) (mcp.Tool, bool) {
-    r.mu.RLock()
-    defer r.mu.RUnlock()
-    t, ok := r.tools[name]
-    return t, ok
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	t, ok := r.tools[name]
+	return t, ok
 }
 
 // Tools returns a stable-sorted list of registered tool definitions.
