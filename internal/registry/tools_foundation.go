@@ -1,12 +1,20 @@
 package registry
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/vinoddu/mcpxcel/internal/runtime"
+	"github.com/vinoddu/mcpxcel/internal/workbooks"
+	"github.com/xuri/excelize/v2"
 )
 
 // --- Input / Output Schemas (typed for discovery) ---
@@ -91,7 +99,7 @@ type ReadRangeOutput struct {
 
 // RegisterFoundationTools defines core tool schemas and placeholder handlers.
 // Handlers intentionally return UNIMPLEMENTED until later tasks wire logic.
-func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.Limits) {
+func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.Limits, mgr *workbooks.Manager) {
 	// open_workbook
 	openTool := mcp.NewTool(
 		"open_workbook",
@@ -100,8 +108,36 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		mcp.WithOutputSchema[OpenWorkbookOutput](),
 	)
 	s.AddTool(openTool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in OpenWorkbookInput) (*mcp.CallToolResult, error) {
-		// Placeholder implementation; real logic in task 7
-		return mcp.NewToolResultError("UNIMPLEMENTED: open_workbook"), nil
+		if strings.TrimSpace(in.Path) == "" {
+			return mcp.NewToolResultError("VALIDATION: path is required"), nil
+		}
+
+		id, err := mgr.Open(ctx, in.Path)
+		if err != nil {
+			// Map common error categories to actionable messages
+			msg := err.Error()
+			lower := strings.ToLower(msg)
+			switch {
+			case strings.Contains(lower, "unsupported format"):
+				return mcp.NewToolResultError("UNSUPPORTED_FORMAT: only .xlsx, .xlsm, .xltx, .xltm supported"), nil
+			case strings.Contains(lower, "denied") || strings.Contains(lower, "not allowed"):
+				return mcp.NewToolResultError("NOT_ALLOWED: path outside allowed directories"), nil
+			case strings.Contains(lower, "not found"):
+				return mcp.NewToolResultError("NOT_FOUND: file not found or inaccessible"), nil
+			case err == context.DeadlineExceeded:
+				return mcp.NewToolResultError("BUSY_RESOURCE: open workbook capacity reached; retry later"), nil
+			default:
+				return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", err)), nil
+			}
+		}
+
+		out := OpenWorkbookOutput{
+			WorkbookID:      id,
+			MaxPayloadBytes: limits.MaxPayloadBytes,
+			PreviewRowLimit: limits.PreviewRowLimit,
+		}
+		fallback := fmt.Sprintf("workbook_id=%s previewRowLimit=%d", out.WorkbookID, out.PreviewRowLimit)
+		return mcp.NewToolResultStructured(out, fallback), nil
 	}))
 	reg.Register(openTool)
 
@@ -115,7 +151,20 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		}](),
 	)
 	s.AddTool(closeTool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in CloseWorkbookInput) (*mcp.CallToolResult, error) {
-		return mcp.NewToolResultError("UNIMPLEMENTED: close_workbook"), nil
+		id := strings.TrimSpace(in.WorkbookID)
+		if id == "" {
+			return mcp.NewToolResultError("VALIDATION: workbook_id is required"), nil
+		}
+		if err := mgr.CloseHandle(ctx, id); err != nil {
+			if errors.Is(err, workbooks.ErrHandleNotFound) {
+				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("CLOSE_FAILED: %v", err)), nil
+		}
+		out := struct {
+			Success bool `json:"success" jsonschema_description:"True when the handle was closed"`
+		}{Success: true}
+		return mcp.NewToolResultStructured(out, "closed"), nil
 	}))
 	reg.Register(closeTool)
 
@@ -128,7 +177,74 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		mcp.WithOutputSchema[ListStructureOutput](),
 	)
 	s.AddTool(listStructure, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ListStructureInput) (*mcp.CallToolResult, error) {
-		return mcp.NewToolResultError("UNIMPLEMENTED: list_structure"), nil
+		id := strings.TrimSpace(in.WorkbookID)
+		if id == "" {
+			return mcp.NewToolResultError("VALIDATION: workbook_id is required"), nil
+		}
+
+		var output ListStructureOutput
+		output.WorkbookID = id
+		output.MetadataOnly = in.MetadataOnly
+
+		err := mgr.WithRead(id, func(f *excelize.File) error {
+			// Gather sheet names in index order
+			sheetMap := f.GetSheetMap()
+			idx := make([]int, 0, len(sheetMap))
+			for i := range sheetMap {
+				idx = append(idx, i)
+			}
+			sort.Ints(idx)
+
+			sheets := make([]SheetInfo, 0, len(idx))
+			for _, i := range idx {
+				name := sheetMap[i]
+				si := SheetInfo{Name: name}
+
+				if dim, derr := f.GetSheetDimension(name); derr == nil && dim != "" {
+					// dim like "A1:D50"; parse right cell for bounds
+					parts := strings.Split(dim, ":")
+					if len(parts) == 2 {
+						x1, y1, e1 := excelize.CellNameToCoordinates(parts[0])
+						x2, y2, e2 := excelize.CellNameToCoordinates(parts[1])
+						if e1 == nil && e2 == nil {
+							if x2 >= x1 {
+								si.ColumnCount = x2 - x1 + 1
+							}
+							if y2 >= y1 {
+								si.RowCount = y2 - y1 + 1
+							}
+						}
+					}
+				}
+
+				if !in.MetadataOnly {
+					// Infer header from first row via streaming iterator
+					rows, rerr := f.Rows(name)
+					if rerr == nil {
+						if rows.Next() {
+							if hdr, herr := rows.Columns(); herr == nil {
+								si.Headers = hdr
+							}
+						}
+						_ = rows.Close()
+					}
+				}
+
+				sheets = append(sheets, si)
+			}
+			output.Sheets = sheets
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, workbooks.ErrHandleNotFound) {
+				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("DISCOVERY_FAILED: %v", err)), nil
+		}
+
+		// Build a concise fallback text
+		fallback := fmt.Sprintf("sheets=%d metadata_only=%v", len(output.Sheets), output.MetadataOnly)
+		return mcp.NewToolResultStructured(output, fallback), nil
 	}))
 	reg.Register(listStructure)
 
@@ -143,7 +259,125 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		mcp.WithOutputSchema[PreviewSheetOutput](),
 	)
 	s.AddTool(preview, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in PreviewSheetInput) (*mcp.CallToolResult, error) {
-		return mcp.NewToolResultError("UNIMPLEMENTED: preview_sheet"), nil
+		id := strings.TrimSpace(in.WorkbookID)
+		sheet := strings.TrimSpace(in.Sheet)
+		if id == "" || sheet == "" {
+			return mcp.NewToolResultError("VALIDATION: workbook_id and sheet are required"), nil
+		}
+		rowsLimit := in.Rows
+		if rowsLimit <= 0 || rowsLimit > 1000 {
+			rowsLimit = limits.PreviewRowLimit
+		}
+		enc := strings.ToLower(strings.TrimSpace(in.Encoding))
+		if enc == "" {
+			enc = "json"
+		}
+		if enc != "json" && enc != "csv" {
+			return mcp.NewToolResultError("VALIDATION: encoding must be 'json' or 'csv'"), nil
+		}
+
+		meta := PageMeta{}
+		// Accumulate preview in selected encoding
+		var textOut string
+		err := mgr.WithRead(id, func(f *excelize.File) error {
+			// Total rows from dimension when available
+			if dim, derr := f.GetSheetDimension(sheet); derr == nil && dim != "" {
+				parts := strings.Split(dim, ":")
+				if len(parts) == 2 {
+					_, y1, e1 := excelize.CellNameToCoordinates(parts[0])
+					_, y2, e2 := excelize.CellNameToCoordinates(parts[1])
+					if e1 == nil && e2 == nil && y2 >= y1 {
+						meta.Total = y2 - y1 + 1
+					}
+				}
+			}
+
+			r, rerr := f.Rows(sheet)
+			if rerr != nil {
+				return rerr
+			}
+			defer r.Close()
+
+			// Prepare encoders
+			if enc == "json" {
+				// Build a JSON array of rows (array of arrays)
+				var buf bytes.Buffer
+				buf.WriteByte('[')
+				count := 0
+				for r.Next() {
+					if count >= rowsLimit {
+						break
+					}
+					row, cerr := r.Columns()
+					if cerr != nil {
+						return cerr
+					}
+					if count > 0 {
+						buf.WriteByte(',')
+					}
+					// serialize row as JSON array
+					b, merr := json.Marshal(row)
+					if merr != nil {
+						return merr
+					}
+					buf.Write(b)
+					count++
+				}
+				buf.WriteByte(']')
+				textOut = buf.String()
+				meta.Returned = count
+			} else {
+				var buf bytes.Buffer
+				w := csv.NewWriter(&buf)
+				count := 0
+				for r.Next() {
+					if count >= rowsLimit {
+						break
+					}
+					row, cerr := r.Columns()
+					if cerr != nil {
+						return cerr
+					}
+					if err := w.Write(row); err != nil {
+						return err
+					}
+					count++
+				}
+				w.Flush()
+				if err := w.Error(); err != nil {
+					return err
+				}
+				textOut = buf.String()
+				meta.Returned = count
+			}
+
+			// Compute truncation and cursor
+			meta.Truncated = meta.Total > 0 && meta.Returned < meta.Total
+			if meta.Truncated {
+				meta.NextCursor = fmt.Sprintf("sheet=%s&offset=%d", sheet, meta.Returned)
+			}
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, workbooks.ErrHandleNotFound) {
+				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+			}
+			if strings.Contains(strings.ToLower(err.Error()), "doesn't exist") {
+				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("PREVIEW_FAILED: %v", err)), nil
+		}
+
+		out := PreviewSheetOutput{
+			WorkbookID: id,
+			Sheet:      sheet,
+			Encoding:   enc,
+			Meta:       meta,
+		}
+		// Text content carries the actual preview data; structured carries metadata
+		res := mcp.NewToolResultStructured(out, "preview generated")
+		res.Content = []mcp.Content{mcp.NewTextContent(textOut)}
+		return res, nil
 	}))
 	reg.Register(preview)
 
@@ -165,3 +399,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	// Annotate tool capability flags via log-friendly text until telemetry middleware is added
 	_ = fmt.Sprintf("foundation tools registered: %d", 5)
 }
+
+// errorsIsHandleNotFound reports whether the error is from the workbooks package
+// indicating a missing handle. We compare by string to avoid importing internal error vars.
+// Removed helper in favor of errors.Is with workbooks.ErrHandleNotFound

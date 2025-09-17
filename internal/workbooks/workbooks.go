@@ -65,6 +65,15 @@ func NewManager(ttl, cleanupEvery time.Duration, gate WorkbookGate, clock func()
 	}
 }
 
+// SetPathValidator installs a path validator used to authorize workbook open
+// requests. When set, Open will call ValidateOpenPath before attempting to
+// open the file. Passing nil removes the validator.
+func (m *Manager) SetPathValidator(v PathValidator) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.validator = v
+}
+
 // Start launches periodic eviction of expired handles.
 func (m *Manager) Start() {
 	m.cleanupWG.Add(1)

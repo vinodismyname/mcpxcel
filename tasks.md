@@ -36,20 +36,20 @@
   - Ensure `list_tools` surfaces schemas, default limits, and capability flags consistent with protocol expectations.
   - _Requirements: 16.1, 16.2_
 
-- [ ] 7. Implement workbook access and structure discovery tools
+- [x] 7. Implement workbook access and structure discovery tools
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5, 10.1, 10.2, 10.3, 10.4, 11.2_
-  - [ ] 7.1 Create open_workbook tool with validation and handle management
+  - [x] 7.1 Create open_workbook tool with validation and handle management
     - Inject `internal/security.Manager` into the workbook manager/registry at bootstrap so `Open` enforces allow-list validation.
     - Build typed handler that validates allow-listed paths, file size, and supported formats before registering handles with TTL cache.
     - Return workbook IDs, effective limits, and warnings (e.g., nearing payload caps) in MCP-compliant responses.
     - Map Excelize/open errors to `FILE_TOO_LARGE` or `UNSUPPORTED_FORMAT` tool errors with recovery guidance.
     - _Requirements: 1.1, 1.2, 1.4, 10.1, 10.2, 10.3, 10.4, 11.2, 13.1_
-  - [ ] 7.2 Implement list_structure tool for metadata discovery
+  - [x] 7.2 Implement list_structure tool for metadata discovery
     - Iterate sheets via Excelize `GetSheetMap`/`Rows` without loading cell data, streaming sheet summaries and header inference.
     - Support metadata-only mode and include row/column counts plus configurable preview guidance.
     - Return specific error codes for invalid handles or discovery failures per protocol catalog.
     - _Requirements: 2.1, 2.2, 2.4, 2.5_
-  - [ ] 7.3 Build preview_sheet tool with streaming row access
+  - [x] 7.3 Build preview_sheet tool with streaming row access
     - Use Excelize `Rows` iterator with deferred `Close` and `Error` checks, enforcing row/payload limits and returning cursors.
     - Provide selectable encodings (JSON table vs CSV string) and include metadata fields `total`, `returned`, `truncated`, `nextCursor`.
     - Emit truncation guidance when previews exceed limits and advise targeted range calls.

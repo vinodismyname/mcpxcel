@@ -15,6 +15,7 @@ import (
 	"github.com/vinoddu/mcpxcel/internal/registry"
 	"github.com/vinoddu/mcpxcel/internal/runtime"
 	"github.com/vinoddu/mcpxcel/internal/security"
+	"github.com/vinoddu/mcpxcel/internal/workbooks"
 	"github.com/vinoddu/mcpxcel/pkg/version"
 )
 
@@ -53,6 +54,11 @@ func main() {
 
 	toolRegistry := registry.New()
 
+	// Workbook manager with TTL cache and runtime-backed open handle limits.
+	wbMgr := workbooks.NewManager(0, 0, runtimeController, time.Now)
+	// Enforce filesystem allow-list validation on open.
+	wbMgr.SetPathValidator(secMgr)
+
 	writeFilter := registry.NewWriteToolFilterFromEnv()
 
 	srv := server.NewMCPServer(
@@ -66,8 +72,8 @@ func main() {
 		server.WithToolFilter(func(ctx context.Context, tools []mcp.Tool) []mcp.Tool { return writeFilter.FilterTools(ctx, tools) }),
 	)
 
-	// Register foundation tool schemas for discovery
-	registry.RegisterFoundationTools(srv, toolRegistry, runtimeController.LimitsSnapshot())
+	// Register foundation tools with implementations wired to the workbook manager
+	registry.RegisterFoundationTools(srv, toolRegistry, runtimeController.LimitsSnapshot(), wbMgr)
 
 	toolContextSize := toolRegistry.ModelContextSize("gpt-4o")
 
