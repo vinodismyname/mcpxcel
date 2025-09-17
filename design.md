@@ -297,7 +297,7 @@ sequenceDiagram
 
 ### Backward Compatibility
 
-- For one release, read_range and preview_sheet MAY continue emitting the legacy query-string style cursor for clients that rely on it. The opaque cursor becomes the canonical field; legacy format is deprecated and will be removed after migration.
+- Legacy query-string cursor emission has been removed. Tools emit and accept only opaque, URL-safe base64 JSON cursors. Clients relying on the legacy `sheet=&range=&offset=` format must migrate to opaque cursors.
 
 ### Security & Size
 
