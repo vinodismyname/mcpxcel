@@ -73,7 +73,7 @@
     - Offer optional preview via read_range pipeline while maintaining payload guardrails.
     - _Requirements: 7.1, 7.2, 7.3_
 
-- [ ] 8.4 Standardize pagination cursors and resume semantics
+- [x] 8.4 Standardize pagination cursors and resume semantics
   - Design and document an opaque, URL-safe base64 JSON cursor spec in `design.md` including fields: version, `workbook_id`, `sheet`, normalized `range`, `unit` (rows|cells), `offset`, `pageSize`, `wbVersion`, `issuedAt`, and tool-specific hashes (`queryHash`, `predicateHash`).
   - Create `pkg/pagination` helpers for `EncodeCursor`, `DecodeCursor`, `NextOffset`, and validation (unit handling, bounds, required fields). Include fuzz tests for malformed tokens.
   - Update `read_range` to accept an optional `cursor` param that takes precedence over `sheet/range/max_cells`; compute resume start from the token; emit opaque `nextCursor`.

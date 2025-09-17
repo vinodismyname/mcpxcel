@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/vinoddu/mcpxcel/internal/runtime"
 	"github.com/vinoddu/mcpxcel/internal/workbooks"
+	"github.com/vinoddu/mcpxcel/pkg/pagination"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -87,6 +89,7 @@ type ReadRangeInput struct {
 	Sheet      string `json:"sheet" jsonschema_description:"Sheet name"`
 	RangeA1    string `json:"range" jsonschema_description:"A1-style cell range (e.g., A1:D50)"`
 	MaxCells   int    `json:"max_cells,omitempty" jsonschema_description:"Max cells to return (bounded)"`
+	Cursor     string `json:"cursor,omitempty" jsonschema_description:"Opaque pagination cursor; takes precedence over sheet/range/max_cells"`
 }
 
 // ReadRangeOutput documents range read metadata.
@@ -410,18 +413,45 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		mcp.WithString("sheet", mcp.Required(), mcp.Description("Sheet name")),
 		mcp.WithString("range", mcp.Required(), mcp.Description("A1-style cell range or named range (e.g., A1:D50)")),
 		mcp.WithNumber("max_cells", mcp.DefaultNumber(float64(limits.MaxCellsPerOp)), mcp.Min(1), mcp.Description("Max cells to return before truncation")),
+		mcp.WithString("cursor", mcp.Description("Opaque pagination cursor; takes precedence over sheet/range/max_cells")),
 		mcp.WithOutputSchema[ReadRangeOutput](),
 	)
 	s.AddTool(readRange, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ReadRangeInput) (*mcp.CallToolResult, error) {
 		id := strings.TrimSpace(in.WorkbookID)
 		sheet := strings.TrimSpace(in.Sheet)
 		rng := strings.TrimSpace(in.RangeA1)
-		if id == "" || sheet == "" || rng == "" {
-			return mcp.NewToolResultError("VALIDATION: workbook_id, sheet, and range are required"), nil
+		curTok := strings.TrimSpace(in.Cursor)
+		if id == "" {
+			return mcp.NewToolResultError("VALIDATION: workbook_id is required"), nil
 		}
 		maxCells := in.MaxCells
 		if maxCells <= 0 || maxCells > limits.MaxCellsPerOp {
 			maxCells = limits.MaxCellsPerOp
+		}
+		// Cursor precedence: when provided, override sheet/range/maxCells from token
+    var startOffset int
+    if curTok != "" {
+        pc, derr := pagination.DecodeCursor(curTok)
+        if derr != nil {
+            return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
+        }
+			if pc.Wid != id {
+				return mcp.NewToolResultError("CURSOR_INVALID: cursor workbook does not match provided workbook_id"), nil
+			}
+			if pc.U != pagination.UnitCells {
+				return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; read_range expects cells"), nil
+			}
+			// Override inputs using cursor values
+			sheet = pc.S
+			rng = pc.R
+			startOffset = pc.Off
+        if pc.Ps > 0 && pc.Ps < maxCells {
+            maxCells = pc.Ps
+        }
+    } else {
+			if sheet == "" || rng == "" {
+				return mcp.NewToolResultError("VALIDATION: sheet and range are required (or supply cursor)"), nil
+			}
 		}
 
 		// We will build a JSON array-of-arrays payload in text form to keep memory bounded
@@ -445,21 +475,45 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			total := (x2 - x1 + 1) * (y2 - y1 + 1)
 			meta.Total = total
 
-			// Iterate row-major, but stop when we reach maxCells
+			// Compute resume position from startOffset (cells) if provided
+			cols := x2 - x1 + 1
+			startRow := y1
+			startCol := x1
+			if startOffset > 0 {
+				startRow = y1 + (startOffset / cols)
+				startCol = x1 + (startOffset % cols)
+				if startCol > x2 {
+					startCol = x1
+					startRow++
+				}
+				if startRow > y2 {
+					// Nothing left to return
+					textOut = "[]"
+					meta.Returned = 0
+					meta.Truncated = false
+					return nil
+				}
+			}
+
+			// Iterate row-major from (startCol,startRow), but stop when we reach maxCells
 			// Build JSON array-of-arrays
 			var buf bytes.Buffer
 			buf.WriteByte('[')
 			writtenCells := 0
-			returnedRows := 0
+			emittedRows := 0
 			stop := false
-			for row := y1; row <= y2 && !stop; row++ {
+			for row := startRow; row <= y2 && !stop; row++ {
 				// For each row, emit an array of columns
-				if returnedRows > 0 {
+				if emittedRows > 0 {
 					buf.WriteByte(',')
 				}
 				buf.WriteByte('[')
 				colsWritten := 0
-				for col := x1; col <= x2; col++ {
+				cstart := x1
+				if row == startRow {
+					cstart = startCol
+				}
+				for col := cstart; col <= x2; col++ {
 					if writtenCells >= maxCells {
 						stop = true
 						break
@@ -475,14 +529,31 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 					writtenCells++
 				}
 				buf.WriteByte(']')
-				returnedRows++
+				emittedRows++
 			}
 			buf.WriteByte(']')
 			textOut = buf.String()
 			meta.Returned = writtenCells
-			meta.Truncated = writtenCells < total
+			meta.Truncated = (startOffset + writtenCells) < total
 			if meta.Truncated {
-				meta.NextCursor = fmt.Sprintf("sheet=%s&range=%s&offset=%d", sheet, outRange, writtenCells)
+				// Build opaque next cursor
+				next := pagination.Cursor{
+					V:   1,
+					Wid: id,
+					S:   sheet,
+					R:   outRange,
+					U:   pagination.UnitCells,
+					Off: pagination.NextOffset(startOffset, writtenCells),
+					Ps:  maxCells,
+					Wbv: 0, // updated by task 8.5
+				}
+				token, _ := pagination.EncodeCursor(next)
+				// Legacy emission behind feature flag: MCPXCEL_EMIT_LEGACY_CURSOR=true
+				if emitLegacyCursor() {
+					meta.NextCursor = fmt.Sprintf("sheet=%s&range=%s&offset=%d", sheet, outRange, startOffset+writtenCells)
+				} else {
+					meta.NextCursor = token
+				}
 			}
 			return nil
 		})
@@ -800,3 +871,9 @@ func resolveRange(f *excelize.File, sheet, input string) (int, int, int, int, st
 // errorsIsHandleNotFound reports whether the error is from the workbooks package
 // indicating a missing handle. We compare by string to avoid importing internal error vars.
 // Removed helper in favor of errors.Is with workbooks.ErrHandleNotFound
+
+// emitLegacyCursor returns true when legacy query-string cursor emission is enabled.
+func emitLegacyCursor() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("MCPXCEL_EMIT_LEGACY_CURSOR")))
+	return v == "1" || v == "true" || v == "yes"
+}
