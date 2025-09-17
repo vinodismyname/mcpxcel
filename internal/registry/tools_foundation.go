@@ -67,6 +67,7 @@ type PreviewSheetInput struct {
 	Sheet      string `json:"sheet" jsonschema_description:"Sheet name to preview"`
 	Rows       int    `json:"rows,omitempty" jsonschema_description:"Max rows to preview (bounded)"`
 	Encoding   string `json:"encoding,omitempty" jsonschema_description:"Output encoding: json or csv"`
+	Cursor     string `json:"cursor,omitempty" jsonschema_description:"Opaque pagination cursor; takes precedence over sheet/rows"`
 }
 
 // PageMeta captures paging/truncation metadata.
@@ -282,13 +283,15 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		mcp.WithString("sheet", mcp.Required(), mcp.Description("Sheet name to preview")),
 		mcp.WithNumber("rows", mcp.DefaultNumber(float64(limits.PreviewRowLimit)), mcp.Min(1), mcp.Max(1000), mcp.Description("Max rows to preview")),
 		mcp.WithString("encoding", mcp.DefaultString("json"), mcp.Enum("json", "csv"), mcp.Description("Output encoding")),
+		mcp.WithString("cursor", mcp.Description("Opaque pagination cursor; takes precedence over sheet/rows/encoding")),
 		mcp.WithOutputSchema[PreviewSheetOutput](),
 	)
 	s.AddTool(preview, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in PreviewSheetInput) (*mcp.CallToolResult, error) {
 		id := strings.TrimSpace(in.WorkbookID)
 		sheet := strings.TrimSpace(in.Sheet)
-		if id == "" || sheet == "" {
-			return mcp.NewToolResultError("VALIDATION: workbook_id and sheet are required"), nil
+		curTok := strings.TrimSpace(in.Cursor)
+		if id == "" {
+			return mcp.NewToolResultError("VALIDATION: workbook_id is required"), nil
 		}
 		rowsLimit := in.Rows
 		if rowsLimit <= 0 || rowsLimit > 1000 {
@@ -302,11 +305,43 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			return mcp.NewToolResultError("VALIDATION: encoding must be 'json' or 'csv'"), nil
 		}
 
+		// Cursor precedence: when provided, override sheet/rows from token
+		var startOffset int
+		var parsedCur *pagination.Cursor
+		if curTok != "" {
+			pc, derr := pagination.DecodeCursor(curTok)
+			if derr != nil {
+				return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
+			}
+			if pc.Wid != id {
+				return mcp.NewToolResultError("CURSOR_INVALID: cursor workbook does not match provided workbook_id"), nil
+			}
+			if pc.U != pagination.UnitRows {
+				return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; preview_sheet expects rows"), nil
+			}
+			sheet = pc.S
+			startOffset = pc.Off
+			if pc.Ps > 0 && pc.Ps < rowsLimit {
+				rowsLimit = pc.Ps
+			}
+			parsedCur = pc
+		} else {
+			if sheet == "" {
+				return mcp.NewToolResultError("VALIDATION: sheet is required (or supply cursor)"), nil
+			}
+		}
+
 		meta := PageMeta{}
 		// Accumulate preview in selected encoding
 		var textOut string
-	err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
-			// Total rows from dimension when available
+		var sheetRange string
+		err := mgr.WithRead(id, func(f *excelize.File, wbvNow int64) error {
+			// Validate cursor workbook version snapshot under read lock
+			if parsedCur != nil && parsedCur.Wbv > 0 && parsedCur.Wbv != wbvNow {
+				return errCursorWbvMismatch
+			}
+
+			// Total rows from dimension when available and capture range for cursor
 			if dim, derr := f.GetSheetDimension(sheet); derr == nil && dim != "" {
 				parts := strings.Split(dim, ":")
 				if len(parts) == 2 {
@@ -314,6 +349,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 					_, y2, e2 := excelize.CellNameToCoordinates(parts[1])
 					if e1 == nil && e2 == nil && y2 >= y1 {
 						meta.Total = y2 - y1 + 1
+						sheetRange = dim
 					}
 				}
 			}
@@ -324,12 +360,31 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			}
 			defer r.Close()
 
-			// Prepare encoders
+			// Skip rows up to startOffset when resuming
+			if startOffset > 0 {
+				skipped := 0
+				for skipped < startOffset && r.Next() {
+					skipped++
+				}
+				// If we reached end before skipping all, nothing left to return
+				if meta.Total > 0 && startOffset >= meta.Total {
+					if enc == "json" {
+						textOut = "[]"
+					} else {
+						textOut = ""
+					}
+					meta.Returned = 0
+					meta.Truncated = false
+					return nil
+				}
+			}
+
 			if enc == "json" {
 				// Build a JSON array of rows (array of arrays)
 				var buf bytes.Buffer
 				buf.WriteByte('[')
 				count := 0
+				first := true
 				for r.Next() {
 					if count >= rowsLimit {
 						break
@@ -338,7 +393,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 					if cerr != nil {
 						return cerr
 					}
-					if count > 0 {
+					if !first {
 						buf.WriteByte(',')
 					}
 					// serialize row as JSON array
@@ -348,6 +403,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 					}
 					buf.Write(b)
 					count++
+					first = false
 				}
 				buf.WriteByte(']')
 				textOut = buf.String()
@@ -378,15 +434,34 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			}
 
 			// Compute truncation and cursor
-			meta.Truncated = meta.Total > 0 && meta.Returned < meta.Total
+			meta.Truncated = meta.Total > 0 && (startOffset+meta.Returned) < meta.Total
 			if meta.Truncated {
-				meta.NextCursor = fmt.Sprintf("sheet=%s&offset=%d", sheet, meta.Returned)
+				// Build opaque next cursor with rows unit
+				next := pagination.Cursor{
+					V:   1,
+					Wid: id,
+					S:   sheet,
+					R:   sheetRange,
+					U:   pagination.UnitRows,
+					Off: pagination.NextOffset(startOffset, meta.Returned),
+					Ps:  rowsLimit,
+					Wbv: wbvNow,
+				}
+				token, _ := pagination.EncodeCursor(next)
+				if emitLegacyCursor() {
+					meta.NextCursor = fmt.Sprintf("sheet=%s&offset=%d", sheet, startOffset+meta.Returned)
+				} else {
+					meta.NextCursor = token
+				}
 			}
 			return nil
 		})
 		if err != nil {
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+			}
+			if errors.Is(err, errCursorWbvMismatch) {
+				return mcp.NewToolResultError("CURSOR_INVALID: workbook changed since cursor was issued; reopen workbook or restart pagination"), nil
 			}
 			if strings.Contains(strings.ToLower(err.Error()), "doesn't exist") {
 				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil

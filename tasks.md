@@ -86,7 +86,7 @@
   - Add table-driven tests simulating writes between paginated reads to assert invalidation and guidance text.
   - _Requirements: 11.4, 12.3, 14.1, 14.2_
 
-- [ ] 8.6 Unify preview/search/filter cursor semantics
+- [x] 8.6 Unify preview/search/filter cursor semantics
   - Update `preview_sheet` to emit/accept the opaque cursor with `unit=rows` and row-based offset; preserve defaults for preview size.
   - Define and adopt tool-specific fields for `search_data` (`queryHash`) and `filter_data` (`predicateHash`) to bind cursors to the same parameters across pages.
   - Ensure all three tools return consistent metadata (`total`, `returned`, `truncated`, `nextCursor`) and validation on resume.
