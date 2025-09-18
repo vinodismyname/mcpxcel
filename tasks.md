@@ -214,7 +214,7 @@ For every task in this plan, follow the same branch/PR/release flow:
   - Reference: .specify/specs/002-path-only-api.md
   - _Requirements: 1 (path-only), 14.1 (cursor stability), 15, 16.1_
 
-- [ ] 9.5 Cursor/Errors polish and meta visibility
+- [x] 9.5 Cursor/Errors polish and meta visibility
   - Fix and verify first-page cursor `mt` binding across tools; standardize invalid-sheet error mapping; surface one-line meta summaries in text outputs for clients that ignore structured metadata.
   - Changes:
     - Always set `mt` (file mtime) when emitting a first-page `nextCursor` for: `preview_sheet`, `read_range`, `search_data`, `filter_data`.
