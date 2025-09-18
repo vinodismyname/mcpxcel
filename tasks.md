@@ -119,7 +119,7 @@
       - Embed original search params (`q`, `rg`, `cl`) in cursor to enable deterministic cursor-only resume; continue validating `qh` for mismatches.
     - Add MCP client validation steps: truncated page returns `nextCursor`, resume works/mismatch invalidates, snapshots sized correctly.
     - _Requirements: 5.1, 5.2, 14.1, 14.2, 16.1_
-  - [ ] 9.3 Build filter_data tool with predicate engine
+  - [x] 9.3 Build filter_data tool with predicate engine
     - Implement filter expression parser (comparisons, logical operators) and evaluate rows via streaming iteration.
     - Support configurable row limits and opaque pagination cursors (unit=rows) embedding `predicateHash` (`ph`); validate `wbv` and `ph` on resume and return `CURSOR_INVALID` when mismatched; align metadata with read_range.
     - Mirror search_data: include predicate provenance in cursor (e.g., original predicate string and optional column scope) to allow cursor-only resume without explicit inputs, while still enforcing `ph` validation for mismatches.
