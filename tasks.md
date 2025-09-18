@@ -80,7 +80,7 @@
     - _Requirements: 7.1, 7.2, 7.3_
 
 - [x] 8.4 Standardize pagination cursors and resume semantics
-  - Design and document an opaque, URL-safe base64 JSON cursor spec in `design.md` including fields: version, `workbook_id`, `sheet`, normalized `range`, `unit` (rows|cells), `offset`, `pageSize`, `wbVersion`, `issuedAt`, and tool-specific hashes (`queryHash`, `predicateHash`).
+  - Design and document an opaque, URL-safe base64 JSON cursor spec in `design.md` including fields: version, `path`, `sheet`, normalized `range`, `unit` (rows|cells), `offset`, `pageSize`, `mtime`, `issuedAt`, and tool-specific hashes (`queryHash`, `predicateHash`).
   - Create `pkg/pagination` helpers for `EncodeCursor`, `DecodeCursor`, `NextOffset`, and validation (unit handling, bounds, required fields). Include fuzz tests for malformed tokens.
   - Update `read_range` to accept an optional `cursor` param that takes precedence over `sheet/range/max_cells`; compute resume start from the token; emit opaque `nextCursor`.
   - Emit only opaque cursors; legacy query-string cursors removed pre‑GA (no env flag fallback).
@@ -206,7 +206,7 @@ For every task in this plan, follow the same branch/PR/release flow:
 
 ---
 
-- [ ] 9.4 Path-only API refactor (no workbook IDs)
+- [x] 9.4 Path-only API refactor (no workbook IDs)
   - Replace client-visible `workbook_id` with `path` for all tools; `cursor` takes precedence when present.
   - Bind cursors to file path (`pt`) and modification time (`mt`) for stateless resume.
   - Update internal/workbooks to support `GetOrOpenByPath` and by-path caching with TTL.

@@ -22,25 +22,25 @@ const (
 //
 // Fields:
 //   - v:   version of the cursor schema
-//   - wid: workbook ID
+//   - pt:  canonical absolute file path
 //   - s:   sheet name
 //   - r:   normalized A1 range (no sheet qualifier)
 //   - u:   unit: "cells" or "rows"
 //   - off: offset in unit from the start of the range/results
 //   - ps:  page size in the chosen unit
-//   - wbv: workbook write-version snapshot (0 when unavailable)
+//   - mt:  file modification time snapshot (unix seconds)
 //   - iat: issued-at timestamp (unix seconds)
 //   - qh:  optional query hash (search)
 //   - ph:  optional predicate hash (filter)
 type Cursor struct {
 	V   int    `json:"v"`
-	Wid string `json:"wid"`
+	Pt  string `json:"pt"`
 	S   string `json:"s"`
 	R   string `json:"r"`
 	U   Unit   `json:"u"`
 	Off int    `json:"off"`
 	Ps  int    `json:"ps"`
-	Wbv int64  `json:"wbv"`
+	Mt  int64  `json:"mt"`
 	Iat int64  `json:"iat"`
 	Qh  string `json:"qh,omitempty"`
 	Ph  string `json:"ph,omitempty"`
@@ -92,8 +92,8 @@ func validate(c *Cursor) error {
 	if c.Iat == 0 {
 		c.Iat = time.Now().Unix()
 	}
-	if strings.TrimSpace(c.Wid) == "" {
-		return errors.New("cursor: wid (workbook id) required")
+	if strings.TrimSpace(c.Pt) == "" {
+		return errors.New("cursor: pt (path) required")
 	}
 	if strings.TrimSpace(c.S) == "" {
 		return errors.New("cursor: s (sheet) required")
@@ -113,8 +113,8 @@ func validate(c *Cursor) error {
 	if c.Ps <= 0 {
 		return errors.New("cursor: ps must be > 0")
 	}
-	if c.Wbv < 0 {
-		c.Wbv = 0
+	if c.Mt < 0 {
+		c.Mt = 0
 	}
 	return nil
 }

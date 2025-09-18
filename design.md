@@ -133,8 +133,8 @@ srv.AddTool(readRangeTool, mcp.NewTypedToolHandler(handleReadRange))
 
 Resources complement tools to expose previews, active configuration, and cached insight artifacts:[^mcp-res]
 
-- `excel://workbooks/{id}/structure` → JSON metadata
-- `excel://workbooks/{id}/preview/{sheet}` → Markdown-or-CSV snapshot
+- `excel://workbook/structure?path=<percent-encoded>` → JSON metadata
+- `excel://workbook/preview/{sheet}?path=<percent-encoded>` → Markdown-or-CSV snapshot
 - `excel://config/limits` → Effective limits advertised to clients (Requirement 15.2)
 
 During startup, the registry publishes both tool catalog and resource catalog so `list_tools` and `list_resources` reflect schemas, defaults, and payload ceilings (Requirement 16.1–16.2).
@@ -184,12 +184,12 @@ conversation := chains.NewConversationChain(llm, memory)
 
 - `SecurityManager.ValidateFilePath` ensures resolved absolute paths stay within `AllowedDirectories` (Requirement 13).  
 - `Validator.ValidateRange` parses A1 ranges, verifying limits before hitting Excelize to prevent expensive operations failing late.  
-- Audit middleware emits `AuditEvent` entries with start/end timestamps, workbook IDs, and error codes; events feed metrics for anomaly detection.
+- Audit middleware emits `AuditEvent` entries with start/end timestamps, canonical paths, and error codes; events feed metrics for anomaly detection.
 
 ### Telemetry & Observability (`internal/telemetry`)
 
 - Hooks capture `OnServerStart`, `OnServerStop`, `OnToolCall`, and `OnResourceRead` per mcp-go guidance, updating Prometheus counters and histograms for latency profiling.[^mcp-advanced]
-- Structured logs via `slog` include request IDs, session IDs, workbook IDs, and concurrency counters.  
+- Structured logs via `slog` include request IDs, session IDs, canonical paths, and concurrency counters.  
 - Optional notifications use `Server.SendNotificationToAllClients` for long-running jobs (e.g., streaming progress), echoing best practices from mcp-go advanced docs.[^mcp-advanced]
 
 ## Data Flow Scenarios
@@ -374,7 +374,7 @@ sequenceDiagram
 - Enforce directory allow-list and denied patterns before opening files (Requirement 13.1–13.2).
 - Require explicit opt-in for write/transform tools; optionally gate them behind authentication middleware.
 - Sanitize user-supplied formulas, filters, and regex patterns to prevent injection attacks.  
-- Log all failures with workbook IDs and error codes for audit trails.
+- Log all failures with canonical paths and error codes for audit trails.
 
 ## Deployment Considerations
 
