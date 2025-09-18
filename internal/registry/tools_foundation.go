@@ -777,17 +777,24 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 				return errCursorWbvMismatch
 			}
 
-			// Resolve total columns for snapshot bounds via sheet dimension
+			// Resolve used range for sheet and derive snapshot anchoring and bounds
 			maxCols := snapshotCols
+			sheetRange := ""
+			xLeft, xRight := 1, snapshotCols
 			if dim, derr := f.GetSheetDimension(sheet); derr == nil && dim != "" {
 				parts := strings.Split(dim, ":")
 				if len(parts) == 2 {
 					x1, _, e1 := excelize.CellNameToCoordinates(parts[0])
 					x2, _, e2 := excelize.CellNameToCoordinates(parts[1])
 					if e1 == nil && e2 == nil && x2 >= x1 {
+						sheetRange = dim
 						cols := x2 - x1 + 1
 						if cols < maxCols {
 							maxCols = cols
+						}
+						xLeft, xRight = x1, x1+maxCols-1
+						if xRight > x2 {
+							xRight = x2
 						}
 					}
 				}
@@ -840,9 +847,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 					continue
 				}
 				val, _ := f.GetCellValue(sheet, cell)
-				// Snapshot first maxCols columns for this row
+				// Snapshot anchored to left bound of used range
 				rowVals := make([]string, 0, maxCols)
-				for c := 1; c <= maxCols; c++ {
+				for c := xLeft; c <= xRight; c++ {
 					cn, _ := excelize.CoordinatesToCellName(c, y)
 					v, _ := f.GetCellValue(sheet, cn)
 					rowVals = append(rowVals, v)
@@ -853,19 +860,28 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			output.Meta.Returned = len(results)
 			output.Meta.Truncated = (startOffset + len(results)) < total
 			if output.Meta.Truncated {
-				qh := computeQueryHash(query, regex, in.Columns)
+				// Preserve qh when resuming via cursor; otherwise compute from inputs
+				qh := ""
+				if parsedCur != nil && parsedCur.Qh != "" {
+					qh = parsedCur.Qh
+				} else {
+					qh = computeQueryHash(query, regex, in.Columns)
+				}
 				next := pagination.Cursor{
 					V:   1,
 					Wid: id,
 					S:   sheet,
-					R:   "", // not applicable
+					R:   sheetRange,
 					U:   pagination.UnitRows,
 					Off: pagination.NextOffset(startOffset, len(results)),
 					Ps:  maxResults,
 					Wbv: wbvNow,
 					Qh:  qh,
 				}
-				token, _ := pagination.EncodeCursor(next)
+				token, encErr := pagination.EncodeCursor(next)
+				if encErr != nil {
+					return fmt.Errorf("CURSOR_BUILD_FAILED: %v", encErr)
+				}
 				output.Meta.NextCursor = token
 			}
 			return nil
@@ -877,8 +893,13 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if errors.Is(err, errCursorWbvMismatch) {
 				return mcp.NewToolResultError("CURSOR_INVALID: workbook changed since cursor was issued; reopen workbook or restart pagination"), nil
 			}
-			if strings.Contains(strings.ToLower(err.Error()), "doesn't exist") {
+			low := strings.ToLower(err.Error())
+			if strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
 				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			}
+			// Cursor build failure mapping
+			if strings.HasPrefix(err.Error(), "CURSOR_BUILD_FAILED:") {
+				return mcp.NewToolResultError("CURSOR_BUILD_FAILED: failed to encode next page cursor; retry or narrow scope"), nil
 			}
 			return mcp.NewToolResultError(fmt.Sprintf("SEARCH_FAILED: %v", err)), nil
 		}
@@ -886,6 +907,10 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		// Human-friendly summary
 		summary := fmt.Sprintf("matches=%d returned=%d truncated=%v", output.Meta.Total, output.Meta.Returned, output.Meta.Truncated)
 		res := mcp.NewToolResultStructured(output, summary)
+		// Attach results as JSON text so clients render hits alongside metadata
+		if b, jerr := json.Marshal(output.Results); jerr == nil {
+			res.Content = []mcp.Content{mcp.NewTextContent(string(b))}
+		}
 		return res, nil
 	}))
 	reg.Register(searchTool)

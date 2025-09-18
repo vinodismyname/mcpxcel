@@ -110,7 +110,7 @@
     - Provide opaque pagination cursors (unit=rows) embedding `queryHash` (`qh`); include total match counts and bounded context rows per hit; validate `wbv` and `qh` on resume and return `CURSOR_INVALID` when mismatched.
     - Emit empty result payloads with zero totals when no matches are found.
     - _Requirements: 5.1, 5.2, 5.3, 5.4_
-  - [ ] 9.2.1 Correct search_data pagination, visibility, and errors
+  - [x] 9.2.1 Correct search_data pagination, visibility, and errors
     - Implement corrections per `steering/search_data_corrections.md`:
       - Set cursor `r` to sheet used range; preserve `qh` when resuming; map encode failures to `CURSOR_BUILD_FAILED`.
       - Map excelize "does not exist"/"doesn't exist" to `INVALID_SHEET`.
