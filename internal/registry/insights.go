@@ -79,6 +79,48 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 		return res, nil
 	}))
 	reg.Register(dt)
+
+	// profile_schema
+	profiler := &insights.Profiler{Limits: limits, Mgr: mgr}
+	ps := mcp.NewTool(
+		"profile_schema",
+		mcp.WithDescription("Infer column roles (measure/dimension/time/id/target) and run data quality checks over a bounded sample"),
+		mcp.WithInputSchema[insights.ProfileSchemaInput](),
+		mcp.WithOutputSchema[insights.ProfileSchemaOutput](),
+	)
+	s.AddTool(ps, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.ProfileSchemaInput) (*mcp.CallToolResult, error) {
+		if strings.TrimSpace(in.Path) == "" || strings.TrimSpace(in.Sheet) == "" || strings.TrimSpace(in.Range) == "" {
+			return mcp.NewToolResultError("VALIDATION: path, sheet, and range are required"), nil
+		}
+		out, err := profiler.ProfileSchema(ctx, in)
+		if err != nil {
+			low := strings.ToLower(err.Error())
+			if strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
+				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			}
+			if strings.Contains(low, "invalid range") || strings.Contains(low, "coordinates") {
+				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
+			}
+			return mcp.NewToolResultError("PROFILING_FAILED: " + err.Error()), nil
+		}
+		// Build concise text summary
+		summary := fmt.Sprintf("cols=%d sampled_rows=%d truncated=%v", len(out.Columns), out.Meta.SampledRows, out.Meta.Truncated)
+		var lines []string
+		lines = append(lines, summary)
+		max := len(out.Columns)
+		if max > 8 {
+			max = 8
+		}
+		for i := 0; i < max; i++ {
+			c := out.Columns[i]
+			lines = append(lines, fmt.Sprintf("$%d %q role=%s type=%s miss=%.1f%% uniq=%.3f warnings=%v", c.Index, c.Name, c.Role, c.Type, c.MissingPct, c.UniqueRatio, previewHeader(c.Warnings, 3)))
+		}
+		text := strings.Join(lines, "\n")
+		res := mcp.NewToolResultStructured(out, summary)
+		res.Content = []mcp.Content{mcp.NewTextContent(text)}
+		return res, nil
+	}))
+	reg.Register(ps)
 }
 
 // previewHeader returns a bounded preview slice for compact summaries.
