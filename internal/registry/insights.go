@@ -10,6 +10,7 @@ import (
 	"github.com/vinodismyname/mcpxcel/internal/insights"
 	"github.com/vinodismyname/mcpxcel/internal/runtime"
 	"github.com/vinodismyname/mcpxcel/internal/workbooks"
+	"github.com/vinodismyname/mcpxcel/pkg/validation"
 	"github.com/vinodismyname/mcpxcel/pkg/mcperr"
 )
 
@@ -59,8 +60,11 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 		mcp.WithOutputSchema[insights.SequentialInsightsOutput](),
 	)
 
-	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.SequentialInsightsInput) (*mcp.CallToolResult, error) {
-		out, err := planner.Plan(ctx, in)
+s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.SequentialInsightsInput) (*mcp.CallToolResult, error) {
+	if msg := validation.ValidateStruct(in); msg != "" {
+		return mcperr.FromText(msg), nil
+	}
+	out, err := planner.Plan(ctx, in)
 		if err != nil {
 			return mcperr.FromText("PLANNING_FAILED: " + err.Error()), nil
 		}
@@ -120,12 +124,15 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 		mcp.WithInputSchema[insights.DetectTablesInput](),
 		mcp.WithOutputSchema[insights.DetectTablesOutput](),
 	)
-	s.AddTool(dt, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.DetectTablesInput) (*mcp.CallToolResult, error) {
-		if strings.TrimSpace(in.Path) == "" {
-			return mcperr.FromText("VALIDATION: path is required"), nil
-		}
-		if strings.TrimSpace(in.Sheet) == "" {
-			return mcperr.FromText("VALIDATION: sheet is required"), nil
+s.AddTool(dt, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.DetectTablesInput) (*mcp.CallToolResult, error) {
+        if msg := validation.ValidateStruct(in); msg != "" {
+            return mcperr.FromText(msg), nil
+        }
+        if strings.TrimSpace(in.Path) == "" {
+            return mcperr.FromText("VALIDATION: path is required"), nil
+        }
+        if strings.TrimSpace(in.Sheet) == "" {
+            return mcperr.FromText("VALIDATION: sheet is required"), nil
 		}
 		out, err := detector.DetectTables(ctx, in)
 		if err != nil {
@@ -161,10 +168,13 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 		mcp.WithInputSchema[insights.ProfileSchemaInput](),
 		mcp.WithOutputSchema[insights.ProfileSchemaOutput](),
 	)
-	s.AddTool(ps, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.ProfileSchemaInput) (*mcp.CallToolResult, error) {
-		if strings.TrimSpace(in.Path) == "" || strings.TrimSpace(in.Sheet) == "" || strings.TrimSpace(in.Range) == "" {
-			return mcperr.FromText("VALIDATION: path, sheet, and range are required"), nil
-		}
+s.AddTool(ps, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.ProfileSchemaInput) (*mcp.CallToolResult, error) {
+        if msg := validation.ValidateStruct(in); msg != "" {
+            return mcperr.FromText(msg), nil
+        }
+        if strings.TrimSpace(in.Path) == "" || strings.TrimSpace(in.Sheet) == "" || strings.TrimSpace(in.Range) == "" {
+            return mcperr.FromText("VALIDATION: path, sheet, and range are required"), nil
+        }
 		out, err := profiler.ProfileSchema(ctx, in)
 		if err != nil {
 			low := strings.ToLower(err.Error())
@@ -203,10 +213,13 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 		mcp.WithInputSchema[insights.CompositionShiftInput](),
 		mcp.WithOutputSchema[insights.CompositionShiftOutput](),
 	)
-	s.AddTool(cs, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.CompositionShiftInput) (*mcp.CallToolResult, error) {
-		if strings.TrimSpace(in.Path) == "" || strings.TrimSpace(in.Sheet) == "" || strings.TrimSpace(in.Range) == "" {
-			return mcperr.FromText("VALIDATION: path, sheet, and range are required"), nil
-		}
+s.AddTool(cs, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.CompositionShiftInput) (*mcp.CallToolResult, error) {
+        if msg := validation.ValidateStruct(in); msg != "" {
+            return mcperr.FromText(msg), nil
+        }
+        if strings.TrimSpace(in.Path) == "" || strings.TrimSpace(in.Sheet) == "" || strings.TrimSpace(in.Range) == "" {
+            return mcperr.FromText("VALIDATION: path, sheet, and range are required"), nil
+        }
 		out, err := composer.CompositionShift(ctx, in)
 		if err != nil {
 			low := strings.ToLower(err.Error())
@@ -233,10 +246,13 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 		mcp.WithInputSchema[insights.ConcentrationMetricsInput](),
 		mcp.WithOutputSchema[insights.ConcentrationMetricsOutput](),
 	)
-	s.AddTool(cm, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.ConcentrationMetricsInput) (*mcp.CallToolResult, error) {
-		if strings.TrimSpace(in.Path) == "" || strings.TrimSpace(in.Sheet) == "" || strings.TrimSpace(in.Range) == "" {
-			return mcperr.FromText("VALIDATION: path, sheet, and range are required"), nil
-		}
+s.AddTool(cm, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.ConcentrationMetricsInput) (*mcp.CallToolResult, error) {
+        if msg := validation.ValidateStruct(in); msg != "" {
+            return mcperr.FromText(msg), nil
+        }
+        if strings.TrimSpace(in.Path) == "" || strings.TrimSpace(in.Sheet) == "" || strings.TrimSpace(in.Range) == "" {
+            return mcperr.FromText("VALIDATION: path, sheet, and range are required"), nil
+        }
 		out, err := concentrator.ConcentrationMetrics(ctx, in)
 		if err != nil {
 			low := strings.ToLower(err.Error())
@@ -263,10 +279,13 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 		mcp.WithInputSchema[insights.FunnelAnalysisInput](),
 		mcp.WithOutputSchema[insights.FunnelAnalysisOutput](),
 	)
-	s.AddTool(fa, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.FunnelAnalysisInput) (*mcp.CallToolResult, error) {
-		if strings.TrimSpace(in.Path) == "" || strings.TrimSpace(in.Sheet) == "" || strings.TrimSpace(in.Range) == "" {
-			return mcperr.FromText("VALIDATION: path, sheet, and range are required"), nil
-		}
+s.AddTool(fa, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.FunnelAnalysisInput) (*mcp.CallToolResult, error) {
+        if msg := validation.ValidateStruct(in); msg != "" {
+            return mcperr.FromText(msg), nil
+        }
+        if strings.TrimSpace(in.Path) == "" || strings.TrimSpace(in.Sheet) == "" || strings.TrimSpace(in.Range) == "" {
+            return mcperr.FromText("VALIDATION: path, sheet, and range are required"), nil
+        }
 		out, err := funneler.FunnelAnalysis(ctx, in)
 		if err != nil {
 			low := strings.ToLower(err.Error())

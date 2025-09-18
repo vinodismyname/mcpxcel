@@ -11,10 +11,10 @@ import (
 // Input schema for the generalized sequential_insights tool (reference-inspired).
 // It tracks the LLM's thinking steps without domain heuristics.
 type SequentialInsightsInput struct {
-	Thought           string `json:"thought" jsonschema_description:"Your current thinking step"`
-	NextThoughtNeeded bool   `json:"next_thought_needed" jsonschema_description:"Whether another thought step is needed"`
-	ThoughtNumber     int    `json:"thought_number" jsonschema_description:"Current thought number (>=1)"`
-	TotalThoughts     int    `json:"total_thoughts" jsonschema_description:"Estimated total thoughts needed (>=1)"`
+    Thought           string `json:"thought" validate:"required" jsonschema_description:"Your current thinking step"`
+    NextThoughtNeeded bool   `json:"next_thought_needed" jsonschema_description:"Whether another thought step is needed"`
+    ThoughtNumber     int    `json:"thought_number" validate:"min=1" jsonschema_description:"Current thought number (>=1)"`
+    TotalThoughts     int    `json:"total_thoughts" validate:"min=1" jsonschema_description:"Estimated total thoughts needed (>=1)"`
 
 	IsRevision        bool   `json:"is_revision,omitempty"`
 	RevisesThought    int    `json:"revises_thought,omitempty"`
@@ -23,7 +23,7 @@ type SequentialInsightsInput struct {
 	NeedsMoreThoughts bool   `json:"needs_more_thoughts,omitempty"`
 
 	// Sessions & flags
-	SessionID          string `json:"session_id,omitempty" jsonschema_description:"Optional session identifier to resume in-memory planning state"`
+    SessionID          string `json:"session_id,omitempty" jsonschema_description:"Optional session identifier to resume in-memory planning state"`
 	ResetSession       bool   `json:"reset_session,omitempty" jsonschema_description:"When true, reset the session referenced by session_id"`
 	ShowAvailableTools bool   `json:"show_available_tools,omitempty" jsonschema_description:"When true, include the available tool catalog in text output"`
 }
