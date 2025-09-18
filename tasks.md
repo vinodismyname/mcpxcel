@@ -141,7 +141,7 @@
   - [x] 10.3 Add schema profiling & role inference
     - Sample ≤100 rows/col to infer roles: measure, dimension, time, id, target. Emit clarifying questions on ambiguity.
     - Data quality checks: missingness, duplicate IDs, negative in nonnegative fields, >100% in percent-like, mixed types.
-  - [ ] 10.4 Add bounded insight primitives
+  - [x] 10.4 Add bounded insight primitives
     - Change over time & variance to baseline/target; driver ranking (Top ± movers), Top-N + "Other" capping.
     - Composition/mix shift (±5pp threshold), concentration metrics (Top-N share, HHI bands), robust outliers (modified z-score |z|≥3.5, ≤5 reported).
     - Funnel analysis: stage detection from column names/hints, stage conversion and bottleneck detection; segment overlays optional.
