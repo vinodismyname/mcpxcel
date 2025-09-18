@@ -50,8 +50,10 @@ func (m *Middleware) ToolMiddleware(next server.ToolHandlerFunc) server.ToolHand
 		// Delegate to the next handler.
 		res, err := next(callCtx, req)
 
-		// If the underlying handler surfaced a context deadline, prefer a tool-level timeout error.
-		if err == context.DeadlineExceeded || (callCtx.Err() == context.DeadlineExceeded && err == nil && res == nil) {
+		// If the underlying handler surfaced a context deadline or cancellation,
+		// prefer a tool-level TIMEOUT error with consistent guidance.
+		if err == context.DeadlineExceeded || err == context.Canceled ||
+			(callCtx.Err() == context.DeadlineExceeded || callCtx.Err() == context.Canceled) && err == nil && res == nil {
 			return mcperr.New(mcperr.Timeout, "operation exceeded configured time limit"), nil
 		}
 

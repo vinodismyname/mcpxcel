@@ -390,7 +390,7 @@ Note: Future iterations may introduce explicit idempotency tokens for writes (ak
 
 1. Use typed tool handlers (`mcp.NewTypedToolHandler`) so `jsonschema` tags enforce required and bounded parameters automatically.[^mcp-typed]
 2. Provide `mcp.WithDescription`, defaults, enums, and unit annotations to make `list_tools` self-documenting (Requirement 16.1).
-3. Wrap handler logic with middleware that enforces context deadlines, concurrency quotas, and audit logging before acquiring workbook locks.
+3. Wrap handler logic with middleware that enforces context deadlines, concurrency quotas, and audit logging before acquiring workbook locks. Handlers propagate `context.Context` into loops and iterator reads; when `ctx` is done they abort early and return `context.DeadlineExceeded`/`context.Canceled`, which middleware maps to a structured `TIMEOUT` error with scope‑narrowing guidance.
 
 ### Resource Exposure
 
