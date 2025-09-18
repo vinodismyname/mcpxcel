@@ -8,6 +8,7 @@ Before coding, You must first read `steering/product.md`, `steering/structure.md
 - `internal/runtime`: concurrency limits, semaphores, and guardrails.
 - `internal/registry`: tool registration, protocol schemas, middleware.
 - `internal/workbooks`: Excelize adapters, workbook cache, validation.
+- `internal/insights`: Sequential insights planning + deterministic primitives.
 - `pkg`: reusable utilities intended for external sharing.
 - `config`: default limits, allow-list templates, environment overrides.
 - `testdata`: sanitized `.xlsx` fixtures—never commit sensitive data.
@@ -20,7 +21,7 @@ Before coding, You must first read `steering/product.md`, `steering/structure.md
 - `make test-race`: run race-enabled tests for `internal/...` packages.
 
 ## Coding Style & Naming Conventions
-Use Go 1.25 tooling: tabs for indentation, gofmt + goimports on save, and idiomatic Go error handling. Follow CamelCase for exported identifiers, snake_case filenames, and `VerbNoun` handler names (e.g., `FilterDataHandler`). Keep packages single-purpose, colocate tests beside implementation, and document new limits in `config/`.
+Use Go 1.25 tooling: tabs for indentation, gofmt + goimports on save, and idiomatic Go error handling. Follow CamelCase for exported identifiers, snake_case filenames, and `VerbNoun` handler names (e.g., `FilterDataHandler`, `GenerateInsightsHandler`). Keep packages single-purpose, colocate tests beside implementation, and document new limits in `config/`.
 
 ## Testing Guidelines
 Author table-driven tests in `*_test.go` files and cover success, validation errors, and busy-limit paths. Use fixtures under `testdata/` for streaming scenarios and guard memory via iterator patterns. Run `make test` for coverage and `make test-race` when touching concurrency or workbook locking logic. Ensure responses assert metadata fields like `total`, `returned`, `truncated`, and `nextCursor`.
@@ -45,7 +46,7 @@ Do not push directly to `main`. Ensure all configuration and documentation chang
 
 ## Agent Note: Versioning Policy
 - After completing each task in `tasks.md`, bump the patch version and publish a release.
-- API model: path-only. Tools accept a canonical `path` (or `cursor`). Do not introduce `workbook_id` flows.
+- API model: path-only. Tools accept a canonical `path` (or `cursor`). Do not introduce `workbook_id` flows. Insights are domain-neutral and deterministic; no server-embedded LLM.
 - When all tasks currently listed in `tasks.md` are complete, bump the minor version.
 - Reserve additional patch versions for hotfixes unrelated to task completion.
 
@@ -53,4 +54,4 @@ Do not push directly to `main`. Ensure all configuration and documentation chang
 - Resource endpoints (`list_resources`, `read_resource`) are currently out of scope. Focus on tool catalog exposure (`list_tools`) and tool correctness.
 
 ## Security & Configuration Tips
-Respect directory allow-lists when accessing workbooks; never bypass via manual path joins. Keep operations bounded (≤10k cells, ≤128KB payload) and surface new limits through metadata. Document environment or config additions in `config/` and `design.md`. Use existing logging and middleware hooks instead of ad-hoc prints for telemetry or audits.
+Respect directory allow-lists when accessing workbooks; never bypass via manual path joins. Keep operations bounded (≤10k cells, ≤128KB payload) and surface new limits through metadata. Document environment or config additions in `config/` and `design.md`. Use existing logging and middleware hooks instead of ad-hoc prints for telemetry or audits. Gate insights bounded compute via config; expose effective thresholds via tool metadata.

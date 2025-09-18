@@ -126,18 +126,29 @@
     - Return validation errors for unsupported operators with corrective guidance.
     - _Requirements: 8.1, 8.2, 8.3, 8.4_
 
-- [ ] 10. Create LangChainGo-powered insight generation system
-  - _Requirements: 9.1, 9.2, 9.3, 9.4_
-  - [ ] 10.1 Set up LangChainGo integration with memory management
-    - Initialize LLM client and chain components using context-first APIs, wired to configurable timeouts and retries.
-    - Choose memory strategy (token buffer/summary) per request, never sharing memory instances across chains per best practice.
-    - Configure HTTP client pooling and fallback providers consistent with LangChainGo architecture guidance.
-    - _Requirements: 9.1, 9.3_
-  - [ ] 10.2 Implement generate_insight tool with statistical fusion
-    - Compose sequential chains that combine deterministic statistics with LLM summarization, enforcing character caps.
-    - Detect LLM failures and degrade gracefully to statistical-only responses with actionable guidance.
-    - Exclude raw data tables from responses while surfacing trends, anomalies, and recommended next queries.
-    - _Requirements: 9.1, 9.2, 9.3, 9.4_
+- [ ] 10. Build Sequential Insights (domain-neutral, client-orchestrated)
+  - Provide a planning tool and bounded, deterministic insight primitives; no server-embedded LLM. The MCP client (LLM) drives clarification, executes recommended tools, and narrates.
+  - _Requirements: 4, 9, 14, 15, 16.1_
+  - [ ] 10.1 Add sequential_insights planning tool
+    - Typed schema: `objective`, `path|cursor`, `hints`, `constraints`, `step_number`, `total_steps`, `next_step_needed`, revision/branch fields.
+    - Output: `current_step`, `recommended_tools[{tool_name, confidence, rationale, priority, suggested_inputs, alternatives}]`, `questions[]`, `insight_cards[]`, `meta`.
+    - Cursor precedence over path; include limits and truncation metadata.
+    - Default planning-only mode; configurable bounded compute.
+  - [ ] 10.2 Implement table detection (multiple tables per sheet)
+    - Detect rectangular data blocks via streaming scan, header heuristics, and blank-row/column separators; return Top-K candidates with confidence and previews.
+    - Ask clarifying question when multiple plausible tables exist; proceed per chosen range.
+  - [ ] 10.3 Add schema profiling & role inference
+    - Sample ≤100 rows/col to infer roles: measure, dimension, time, id, target. Emit clarifying questions on ambiguity.
+    - Data quality checks: missingness, duplicate IDs, negative in nonnegative fields, >100% in percent-like, mixed types.
+  - [ ] 10.4 Add bounded insight primitives
+    - Change over time & variance to baseline/target; driver ranking (Top ± movers), Top-N + "Other" capping.
+    - Composition/mix shift (±5pp threshold), concentration metrics (Top-N share, HHI bands), robust outliers (modified z-score |z|≥3.5, ≤5 reported).
+    - Funnel analysis: stage detection from column names/hints, stage conversion and bottleneck detection; segment overlays optional.
+  - [ ] 10.5 Tests and documentation
+    - Planner test matrix, table detection and role inference tests on fixtures, primitive correctness on small XLSX.
+    - Update steering/product.md, steering/tech.md, steering/structure.md, design.md, requirements.md (Req. 9), and AGENTS.md.
+  - [ ] 10.6 Config flags and safety
+    - Add config to enable bounded compute and set thresholds (max_groups, outlier limit, mix threshold); keep path-only API and cursor semantics.
 
  
 

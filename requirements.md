@@ -97,14 +97,15 @@ The MCP Excel Analysis Server is a Model Context Protocol (MCP) compliant servic
 
 ### Requirement 9
 
-**User Story:** As an AI assistant, I want to generate insights and summaries from spreadsheet data, so that I can provide meaningful analysis without including raw data in my responses.
+**User Story:** As an AI assistant, I want a domain-neutral planning tool and bounded insight primitives so that I can iteratively reason about a user’s objective, ask clarifying questions, execute recommended steps, and present concise findings without raw data dumps.
 
 #### Acceptance Criteria
 
-1. WHEN insight generation is requested THEN the system SHALL produce summary text limited to the default 2,000 characters, with this limit configurable
-2. WHEN insights are generated THEN the system SHALL include key statistics, trends, and notable patterns
-3. WHEN insight generation fails THEN the system SHALL return available statistics and suggest manual analysis approaches
-4. WHEN insights are returned THEN the system SHALL exclude raw data tables from the response
+1. WHEN the `sequential_insights` tool is called THEN the system SHALL return a planning payload containing: (a) `current_step` with a brief description, (b) `recommended_tools` each with `tool_name`, `confidence` (0–1), `rationale`, `priority`, and `suggested_inputs`, (c) `questions` when ambiguity exists (e.g., multiple tables, multiple date columns), and (d) optional `insight_cards` summarizing bounded findings.
+2. WHEN insight cards are returned THEN they SHALL contain a clear finding, quantitative impact, a compact evidence snippet, stated assumptions, and a next action; raw tables SHALL NOT be returned.
+3. WHEN bounded compute is enabled THEN the system SHALL provide deterministic primitives under configured caps: change over time and variance to baseline/target, driver ranking (Top ± movers with Top‑N capping + "Other"), composition/mix shift (±5pp threshold), concentration metrics (Top‑N share and HHI bands), robust outliers (modified z‑score with |z|≥3.5, ≤5 reported), funnel stage conversions when stage columns are detected or hinted.
+4. WHEN limits are exceeded or ambiguity remains THEN the system SHALL degrade to planning-only responses with explicit `questions` and actionable `recommended_tools` to proceed safely.
+5. WHEN responses are returned THEN the system SHALL include metadata describing caps (e.g., group limits, truncation), cursor behavior, and effective configuration relevant to the insight operation.
 
 ### Requirement 10
 
