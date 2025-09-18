@@ -1,0 +1,29 @@
+# Binaries
+server
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Build directories
+bin/
+dist/
+
+# Go build cache and test outputs
+*.test
+*.out
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Excel files (except fixtures)
+*.xlsx
+*.xlsm
+*.xls
+!testdata/*.xlsx
+!testdata/*.xlsm
+!testdata/*.xls
+

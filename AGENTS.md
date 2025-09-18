@@ -1,0 +1,32 @@
+# Repository Guidelines
+
+## Onboarding & Required Reading
+Before coding, You must first read `steering/product.md`, `steering/structure.md`, `steering/tech.md`, `design.md`, `requirements.md`, and `tasks.md`. Mark completed checklist items directly in `tasks.md` and create a Git commit immediately after each task is checked off. Use the MCP tools (`octodoc`, `ref`) to search and get task relavant documentation/references that will help you with the implementation before implementing changes.
+
+## Project Structure & Module Organization
+- `cmd/server`: MCP server entrypoint and CLI wiring.
+- `internal/runtime`: concurrency limits, semaphores, and guardrails.
+- `internal/registry`: tool registration, protocol schemas, middleware.
+- `internal/workbooks`: Excelize adapters, workbook cache, validation.
+- `pkg`: reusable utilities intended for external sharing.
+- `config`: default limits, allow-list templates, environment overrides.
+- `testdata`: sanitized `.xlsx` fixtures—never commit sensitive data.
+
+## Build, Test, and Development Commands
+- `make run` / `go run ./cmd/server --stdio`: start the server over stdio.
+- `make build`: compile the server binary into `cmd/server`.
+- `make lint`: run gofmt, goimports (when available), and go vet.
+- `make test`: execute unit tests with coverage across `./...`.
+- `make test-race`: run race-enabled tests for `internal/...` packages.
+
+## Coding Style & Naming Conventions
+Use Go 1.22 tooling: tabs for indentation, gofmt + goimports on save, and idiomatic Go error handling. Follow CamelCase for exported identifiers, snake_case filenames, and `VerbNoun` handler names (e.g., `OpenWorkbookHandler`). Keep packages single-purpose, colocate tests beside implementation, and document new limits in `config/`.
+
+## Testing Guidelines
+Author table-driven tests in `*_test.go` files and cover success, validation errors, and busy-limit paths. Use fixtures under `testdata/` for streaming scenarios and guard memory via iterator patterns. Run `make test` for coverage and `make test-race` when touching concurrency or workbook locking logic. Ensure responses assert metadata fields like `total`, `returned`, `truncated`, and `nextCursor`.
+
+## Commit & Pull Request Guidelines
+Write imperative commit subjects with clear scope (e.g., `runtime: enforce workbook cap`). Summaries should mention requirements addressed and validation performed (`make lint`, `make test`, race runs if relevant). Pull requests must include description, linked issues/requirements, test evidence, and screenshots or logs for protocol or response changes. Flag configuration updates and request reviewers responsible for touched modules.
+
+## Security & Configuration Tips
+Respect directory allow-lists when accessing workbooks; never bypass via manual path joins. Keep operations bounded (≤10k cells, ≤128KB payload) and surface new limits through metadata. Document environment or config additions in `config/` and `design.md`. Use existing logging and middleware hooks instead of ad-hoc prints for telemetry or audits.
