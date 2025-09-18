@@ -93,14 +93,14 @@ type ReadRangeOutput struct {
 
 // SearchDataInput defines parameters for searching values/patterns.
 type SearchDataInput struct {
-	Path         string `json:"path" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
-	Sheet        string `json:"sheet" jsonschema_description:"Sheet name"`
-	Query        string `json:"query" jsonschema_description:"Search value or regex pattern"`
-	Regex        bool   `json:"regex,omitempty" jsonschema_description:"Interpret query as regular expression"`
-	Columns      []int  `json:"columns,omitempty" jsonschema_description:"Optional 1-based column indexes to restrict search"`
-	MaxResults   int    `json:"max_results,omitempty" jsonschema_description:"Max matches to return per page (bounded)"`
-	SnapshotCols int    `json:"snapshot_cols,omitempty" jsonschema_description:"Max columns to include in row snapshot (bounded)"`
-	Cursor       string `json:"cursor,omitempty" jsonschema_description:"Opaque pagination cursor; takes precedence over sheet/query/columns/max_results"`
+	Path         string `json:"path" jsonschema_description:"Canonical absolute workbook path (allow‑list enforced)"`
+	Sheet        string `json:"sheet" jsonschema_description:"Target sheet name (case‑insensitive)"`
+	Query        string `json:"query" jsonschema_description:"Literal substring or pattern to find; set regex=true to treat as RE2 regex"`
+	Regex        bool   `json:"regex,omitempty" jsonschema_description:"If true, interpret query as Go RE2 regular expression; otherwise use literal substring match"`
+	Columns      []int  `json:"columns,omitempty" jsonschema_description:"Optional 1‑based column indexes to restrict search scope"`
+	MaxResults   int    `json:"max_results,omitempty" jsonschema_description:"Max results per page (unit=rows); bounded by server limits"`
+	SnapshotCols int    `json:"snapshot_cols,omitempty" jsonschema_description:"Max columns to include in each row snapshot; anchored to leftmost used column (bounded)"`
+	Cursor       string `json:"cursor,omitempty" jsonschema_description:"Opaque URL‑safe base64 cursor (unit=rows) bound to path+mtime and query hash; takes precedence for resume"`
 }
 
 // SearchMatch captures a single search hit with bounded row snapshot.
@@ -129,9 +129,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	// list_structure
 	listStructure := mcp.NewTool(
 		"list_structure",
-		mcp.WithDescription("Return workbook structure: sheets, dimensions, headers (no cell data)"),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute or allowed path to an Excel workbook")),
-		mcp.WithBoolean("metadata_only", mcp.DefaultBool(false), mcp.Description("Return only metadata even for small sheets")),
+		mcp.WithDescription("Discover workbook structure without reading cell data. Lists sheets in index order with approximate row/column counts derived from the used range and a best‑effort header inference from the first row only (skipped when metadata_only=true). Use this first to ground subsequent steps (e.g., preview_sheet, read_range, search_data, filter_data) instead of streaming entire sheets. Returns no cell values and has no pagination; output includes sheets[] with name, rowCount, columnCount, and optional headers. Errors map to OPEN_FAILED, DISCOVERY_FAILED, or INVALID_HANDLE; access is restricted to configured allow‑list directories."),
+		mcp.WithString("path", mcp.Required(), mcp.Description("Canonical absolute file path to an Excel workbook (allow‑list enforced)")),
+		mcp.WithBoolean("metadata_only", mcp.DefaultBool(false), mcp.Description("If true, return only metadata (sheet names, dimensions) and skip header inference")),
 		mcp.WithOutputSchema[ListStructureOutput](),
 	)
 	s.AddTool(listStructure, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ListStructureInput) (*mcp.CallToolResult, error) {
@@ -234,12 +234,12 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	// preview_sheet
 	preview := mcp.NewTool(
 		"preview_sheet",
-		mcp.WithDescription("Stream a bounded preview of the first N rows of a sheet"),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute or allowed path to an Excel workbook")),
-		mcp.WithString("sheet", mcp.Required(), mcp.Description("Sheet name to preview")),
-		mcp.WithNumber("rows", mcp.DefaultNumber(float64(limits.PreviewRowLimit)), mcp.Min(1), mcp.Max(1000), mcp.Description("Max rows to preview")),
-		mcp.WithString("encoding", mcp.DefaultString("json"), mcp.Enum("json", "csv"), mcp.Description("Output encoding")),
-		mcp.WithString("cursor", mcp.Description("Opaque pagination cursor; takes precedence over sheet/rows/encoding")),
+		mcp.WithDescription("Stream a bounded preview of the first N rows to inspect headers and data types without loading the full sheet. When a cursor is provided it takes precedence over sheet/rows/encoding and resumes by row offset (unit=rows) bound to path and file mtime. Text content begins with a one‑line summary: 'total=<n> returned=<m> truncated=<bool> nextCursor=<token-or-empty>'; structured meta mirrors these fields. Use this to confirm structure before targeted reads/filters. Errors include VALIDATION, INVALID_SHEET, CURSOR_INVALID, and PREVIEW_FAILED; path access is allow‑listed."),
+		mcp.WithString("path", mcp.Required(), mcp.Description("Canonical absolute file path (allow‑list enforced)")),
+		mcp.WithString("sheet", mcp.Required(), mcp.Description("Sheet name to preview (case‑insensitive)")),
+		mcp.WithNumber("rows", mcp.DefaultNumber(float64(limits.PreviewRowLimit)), mcp.Min(1), mcp.Max(1000), mcp.Description("Max rows per page (unit=rows); defaults to PreviewRowLimit")),
+		mcp.WithString("encoding", mcp.DefaultString("json"), mcp.Enum("json", "csv"), mcp.Description("Output text encoding: 'json' (array‑of‑rows) or 'csv'")),
+		mcp.WithString("cursor", mcp.Description("Opaque URL‑safe base64 cursor (unit=rows); takes precedence and binds to path+mtime")),
 		mcp.WithOutputSchema[PreviewSheetOutput](),
 	)
 	s.AddTool(preview, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in PreviewSheetInput) (*mcp.CallToolResult, error) {
@@ -441,12 +441,12 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	// read_range
 	readRange := mcp.NewTool(
 		"read_range",
-		mcp.WithDescription("Return a bounded cell range with pagination metadata"),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute or allowed path to an Excel workbook")),
-		mcp.WithString("sheet", mcp.Required(), mcp.Description("Sheet name")),
-		mcp.WithString("range", mcp.Required(), mcp.Description("A1-style cell range or named range (e.g., A1:D50)")),
-		mcp.WithNumber("max_cells", mcp.DefaultNumber(float64(limits.MaxCellsPerOp)), mcp.Min(1), mcp.Description("Max cells to return before truncation")),
-		mcp.WithString("cursor", mcp.Description("Opaque pagination cursor; takes precedence over sheet/range/max_cells")),
+		mcp.WithDescription("Return a bounded rectangular cell range with deterministic row‑major pagination (unit=cells). Provide an A1‑style range or a defined name; when a cursor is supplied it overrides sheet/range/max_cells and resumes at the exact cell offset bound to path and file mtime. Text output is a JSON array‑of‑arrays prefixed with a one‑line summary; structured meta includes total, returned, truncated, and nextCursor. Limits: max_cells and payload caps apply; named ranges must resolve. Errors: VALIDATION (bad range), INVALID_SHEET, CURSOR_INVALID, READ_FAILED."),
+		mcp.WithString("path", mcp.Required(), mcp.Description("Canonical absolute file path (allow‑list enforced)")),
+		mcp.WithString("sheet", mcp.Required(), mcp.Description("Target sheet name (case‑insensitive)")),
+		mcp.WithString("range", mcp.Required(), mcp.Description("A1‑style range or defined name, e.g., 'A1:D50'")),
+		mcp.WithNumber("max_cells", mcp.DefaultNumber(float64(limits.MaxCellsPerOp)), mcp.Min(1), mcp.Description("Max cells per page before truncation (unit=cells)")),
+		mcp.WithString("cursor", mcp.Description("Opaque URL‑safe base64 cursor (unit=cells); takes precedence and binds to path+mtime")),
 		mcp.WithOutputSchema[ReadRangeOutput](),
 	)
 	s.AddTool(readRange, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ReadRangeInput) (*mcp.CallToolResult, error) {
@@ -644,7 +644,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	// search_data
 	searchTool := mcp.NewTool(
 		"search_data",
-		mcp.WithDescription("Search for values or regex patterns with optional column filters and bounded row snapshots"),
+		mcp.WithDescription("Find literal values or regex matches in a sheet and return a bounded page of results with coordinates and a limited row snapshot. Use this to locate relevant rows without streaming entire sheets. Pagination operates in rows (unit=rows); when a cursor is provided it takes precedence over sheet/query/filters/max_results and binds to path+mtime and a query hash so resumes are deterministic. Optional 1‑based column filters restrict the search to specific columns. Snapshots are anchored to the leftmost used column and capped by snapshot_cols and sheet width. Errors include VALIDATION, INVALID_SHEET, CURSOR_INVALID, and SEARCH_FAILED."),
 		mcp.WithInputSchema[SearchDataInput](),
 		mcp.WithOutputSchema[SearchDataOutput](),
 	)
@@ -884,13 +884,13 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 	// filter_data
 	type FilterDataInput struct {
-		Path         string `json:"path" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
-		Sheet        string `json:"sheet" jsonschema_description:"Sheet name"`
-		Predicate    string `json:"predicate" jsonschema_description:"Predicate expression using $N column refs and operators (=,!=,>,<,>=,<=, contains) with AND/OR/NOT and parentheses"`
-		Columns      []int  `json:"columns,omitempty" jsonschema_description:"Optional 1-based column indexes to include in cursor provenance"`
-		MaxRows      int    `json:"max_rows,omitempty" jsonschema_description:"Max rows to return per page (bounded)"`
-		SnapshotCols int    `json:"snapshot_cols,omitempty" jsonschema_description:"Max columns to include in row snapshot (bounded)"`
-		Cursor       string `json:"cursor,omitempty" jsonschema_description:"Opaque pagination cursor; takes precedence over sheet/predicate/max_rows"`
+		Path         string `json:"path" jsonschema_description:"Canonical absolute workbook path (allow‑list enforced)"`
+		Sheet        string `json:"sheet" jsonschema_description:"Target sheet name (case‑insensitive)"`
+		Predicate    string `json:"predicate" jsonschema_description:"Boolean predicate using $N (1‑based) column refs with operators (=, !=, >, <, >=, <=, contains) and AND/OR/NOT; parentheses supported"`
+		Columns      []int  `json:"columns,omitempty" jsonschema_description:"Optional 1‑based column indexes echoed into the cursor provenance for deterministic resume"`
+		MaxRows      int    `json:"max_rows,omitempty" jsonschema_description:"Max rows per page (unit=rows); bounded by server limits"`
+		SnapshotCols int    `json:"snapshot_cols,omitempty" jsonschema_description:"Max columns to include in each row snapshot; anchored to leftmost used column (bounded)"`
+		Cursor       string `json:"cursor,omitempty" jsonschema_description:"Opaque URL‑safe base64 cursor (unit=rows) bound to path+mtime and predicate hash; takes precedence for resume"`
 	}
 
 	type FilteredRow struct {
@@ -908,7 +908,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 	filterTool := mcp.NewTool(
 		"filter_data",
-		mcp.WithDescription("Filter rows by predicate ($N refs, comparison and boolean operators) with pagination"),
+		mcp.WithDescription("Filter rows using a boolean predicate with $N column references and comparison/boolean operators, and return a bounded page with snapshots. Use when column positions are known and you need structured selection (e.g., $1 contains 'foo' AND $3 > 100). Pagination operates in rows (unit=rows); a cursor takes precedence and binds to path+mtime and a predicate hash so resumes are deterministic. Column indices referenced by $N are 1‑based. Snapshots are anchored to the leftmost used column and capped by snapshot_cols. Errors include VALIDATION (predicate/inputs), INVALID_SHEET, CURSOR_INVALID, and FILTER_FAILED."),
 		mcp.WithInputSchema[FilterDataInput](),
 		mcp.WithOutputSchema[FilterDataOutput](),
 	)

@@ -19,7 +19,7 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 	// Define tool with typed schemas
 	tool := mcp.NewTool(
 		"sequential_insights",
-		mcp.WithDescription("Domain-neutral planning for stepwise analysis with recommended tools and clarifying questions"),
+		mcp.WithDescription("Sequential thinking planner that is domain‑neutral and LLM‑friendly: takes an objective and returns current_step, clarifying questions, and recommended tool calls with confidence, rationale, priority, and suggested_inputs. Planning‑only by default (no server‑embedded LLM); deterministic primitives are gated by config and off by default. Path‑first API with optional cursor; cursor takes precedence over path when provided. Outputs surface effective limits and truncation flags so the client can orchestrate the next step."),
 		mcp.WithInputSchema[insights.SequentialInsightsInput](),
 		mcp.WithOutputSchema[insights.SequentialInsightsOutput](),
 	)
@@ -42,7 +42,7 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 	detector := &insights.Detector{Limits: limits, Mgr: mgr}
 	dt := mcp.NewTool(
 		"detect_tables",
-		mcp.WithDescription("Detect rectangular table regions (multiple tables per sheet) and return Top-K candidates"),
+		mcp.WithDescription("Detect multiple rectangular table regions within a sheet using a bounded streaming scan and simple header heuristics. Returns Top‑K ranked candidates with range, header preview, confidence, and optional header samples. Use when a sheet contains several tables separated by blanks and you need a suggested range to analyze. Limits/caps constrain scan rows/cols; errors include INVALID_SHEET and DETECTION_FAILED."),
 		mcp.WithInputSchema[insights.DetectTablesInput](),
 		mcp.WithOutputSchema[insights.DetectTablesOutput](),
 	)
@@ -84,7 +84,7 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 	profiler := &insights.Profiler{Limits: limits, Mgr: mgr}
 	ps := mcp.NewTool(
 		"profile_schema",
-		mcp.WithDescription("Infer column roles (measure/dimension/time/id/target) and run data quality checks over a bounded sample"),
+		mcp.WithDescription("Profile a bounded range to infer column roles (measure, dimension, time, id, target) and run data quality checks (missingness, duplicates, negative values in nonnegative fields, >100% in percent‑like, mixed types). Use this after choosing a table/range to ground downstream analysis. Sampling is bounded by config; errors include VALIDATION (range), INVALID_SHEET, and PROFILING_FAILED."),
 		mcp.WithInputSchema[insights.ProfileSchemaInput](),
 		mcp.WithOutputSchema[insights.ProfileSchemaOutput](),
 	)
@@ -126,7 +126,7 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 	composer := &insights.Composer{Limits: limits, Mgr: mgr}
 	cs := mcp.NewTool(
 		"composition_shift",
-		mcp.WithDescription("Compute share-of-total by group across two periods and highlight mix shifts (±pp)"),
+		mcp.WithDescription("Compute share‑of‑total by group across two periods and highlight mix shifts in percentage points. Accepts 1‑based indices for dimension/measure (and optional time), detects baseline/current periods when not provided, and caps results to Top‑N with the rest grouped into 'Other'. Limits cap processed cells; errors include VALIDATION (range/indices), INVALID_SHEET, and ANALYSIS_FAILED."),
 		mcp.WithInputSchema[insights.CompositionShiftInput](),
 		mcp.WithOutputSchema[insights.CompositionShiftOutput](),
 	)
@@ -156,7 +156,7 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 	concentrator := &insights.Concentrator{Limits: limits, Mgr: mgr}
 	cm := mcp.NewTool(
 		"concentration_metrics",
-		mcp.WithDescription("Compute Top-N share and HHI concentration metrics for a dimension"),
+		mcp.WithDescription("Compute Top‑N share and Herfindahl‑Hirschman Index (HHI) for a grouping dimension. Accepts 1‑based indices for dimension and numeric measure within the range; returns Top‑N group shares, 'Other' share, HHI value, and a concentration band. Limits cap processed cells; errors include VALIDATION (range/indices), INVALID_SHEET, and ANALYSIS_FAILED."),
 		mcp.WithInputSchema[insights.ConcentrationMetricsInput](),
 		mcp.WithOutputSchema[insights.ConcentrationMetricsOutput](),
 	)
@@ -186,7 +186,7 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 	funneler := &insights.Funneler{Limits: limits, Mgr: mgr}
 	fa := mcp.NewTool(
 		"funnel_analysis",
-		mcp.WithDescription("Compute stage and cumulative conversion across ordered funnel stages; detect bottlenecks"),
+		mcp.WithDescription("Compute stage and cumulative conversion across ordered funnel stages and identify bottlenecks. Stages are detected from header names when not provided, or specified via 1‑based stage_indices within the range. Use this for pipeline/step data; results include per‑stage and cumulative conversion. Limits cap processed cells; errors include VALIDATION (range/indices), INVALID_SHEET, and ANALYSIS_FAILED."),
 		mcp.WithInputSchema[insights.FunnelAnalysisInput](),
 		mcp.WithOutputSchema[insights.FunnelAnalysisOutput](),
 	)
