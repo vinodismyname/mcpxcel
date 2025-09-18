@@ -109,7 +109,7 @@ type RuntimeController struct {
 | `compute_statistics` | 4 | Calculates stats up to configured cell limits, streaming columns. |
 | `search_data` | 5 | Utilizes `SearchSheet` with optional column filters.[^excelize-rows] |
 | `sequential_insights` | 9,14 | Planning tool returning questions, recommended tool calls, and insight cards; can run bounded primitives. |
-| `detect_tables` | 2 | Detects multiple table regions (ranges) within a sheet; returns Top‑K candidates. Supports `header_sample_rows` to include a compact header sample from each candidate. |
+| `detect_tables` | 2 | Detects multiple table regions (ranges) within a sheet; returns Top‑K candidates. Supports `header_sample_rows` and `header_sample_cols` (default 2 x 12, max 5 x 32) to include a compact header sample from each candidate. |
 | `profile_schema` | 4 | Role inference (measure/dimension/time/id/target) + data quality checks. |
 | `composition_shift` | 4 | Quantifies share changes and net effect on KPI (±5pp threshold). |
 | `concentration_metrics` | 4 | Computes Top-N share and HHI bands. |

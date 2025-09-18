@@ -21,16 +21,18 @@ type DetectTablesInput struct {
 	MaxScanCols      int    `json:"max_scan_cols,omitempty" jsonschema_description:"Max number of columns to scan (bounded)"`
 	HeaderRow        int    `json:"header_row,omitempty" jsonschema_description:"Optional 1-based header row hint; defaults to first non-empty row of each block"`
 	HeaderSampleRows int    `json:"header_sample_rows,omitempty" jsonschema_description:"Include top-N rows of each candidate for header sampling (default 2, max 5)"`
+	HeaderSampleCols int    `json:"header_sample_cols,omitempty" jsonschema_description:"Include leftmost N columns of header sample (default 12, max 32)"`
 }
 
 // TableCandidate describes a detected rectangular region that likely forms a table.
 type TableCandidate struct {
-	Range        string     `json:"range"`
-	Header       []string   `json:"header,omitempty"`
-	Confidence   float64    `json:"confidence"`
-	Rows         int        `json:"rows"`
-	Cols         int        `json:"cols"`
-	HeaderSample [][]string `json:"header_sample,omitempty"`
+	Range            string     `json:"range"`
+	Header           []string   `json:"header,omitempty"`
+	Confidence       float64    `json:"confidence"`
+	Rows             int        `json:"rows"`
+	Cols             int        `json:"cols"`
+	HeaderSample     [][]string `json:"header_sample,omitempty"`
+	HeaderSampleCols int        `json:"header_sample_cols_effective,omitempty"`
 }
 
 // DetectTablesOutput carries ranked candidates with basic scan metadata.
@@ -237,6 +239,11 @@ func (d *Detector) DetectTables(ctx context.Context, in DetectTablesInput) (Dete
 	if hsr <= 0 || hsr > 5 {
 		hsr = 2
 	}
+	// Bound header sample columns
+	hsc := in.HeaderSampleCols
+	if hsc <= 0 || hsc > 32 {
+		hsc = 12
+	}
 	for _, rc := range comps {
 		// Header row: use rc.r1 or explicit hint if within bounds
 		hdrRow := rc.r1
@@ -268,28 +275,35 @@ func (d *Detector) DetectTables(ctx context.Context, in DetectTablesInput) (Dete
 		// Coordinates are 1-based; rc indices are 0-based rows/cols
 		tl, _ := excelize.CoordinatesToCellName(rc.c1+1, rc.r1+1)
 		br, _ := excelize.CoordinatesToCellName(rc.c2+1, rc.r2+1)
-		// Build header sample from the top of the candidate block
+		// Build header sample from the top-left of the candidate block
 		sampleRows := hsr
 		if sampleRows > (rc.r2 - rc.r1 + 1) {
 			sampleRows = (rc.r2 - rc.r1 + 1)
 		}
+		// Effective sample columns (pre-trim)
+		maxCols := rc.c2 - rc.c1 + 1
+		effCols := hsc
+		if effCols > maxCols {
+			effCols = maxCols
+		}
 		sample := make([][]string, 0, sampleRows)
 		for rr := 0; rr < sampleRows; rr++ {
-			rowVals := make([]string, 0, rc.c2-rc.c1+1)
+			rowVals := make([]string, 0, effCols)
 			rIdx := rc.r1 + rr
-			for cc := rc.c1; cc <= rc.c2; cc++ {
+			for cc := rc.c1; cc < rc.c1+effCols; cc++ {
 				rowVals = append(rowVals, g.vals[rIdx][cc])
 			}
 			sample = append(sample, trimTrailingEmpties(rowVals))
 		}
 
 		cands = append(cands, TableCandidate{
-			Range:        tl + ":" + br,
-			Header:       trimTrailingEmpties(header),
-			Confidence:   round3(conf),
-			Rows:         rc.r2 - rc.r1 + 1,
-			Cols:         rc.c2 - rc.c1 + 1,
-			HeaderSample: sample,
+			Range:            tl + ":" + br,
+			Header:           trimTrailingEmpties(header),
+			Confidence:       round3(conf),
+			Rows:             rc.r2 - rc.r1 + 1,
+			Cols:             rc.c2 - rc.c1 + 1,
+			HeaderSample:     sample,
+			HeaderSampleCols: effCols,
 		})
 	}
 
