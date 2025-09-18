@@ -49,6 +49,7 @@ go test -race ./internal/...  # Race detection for concurrency
 - **Path-First API**: Tools accept `path` or `cursor`; no client-visible workbook IDs
 - **Session-Lite Design**: In‑memory session state for sequential_insights (bounded recent history); all domain tools remain path/cursor-first and stateless
 - **Sequential Insights**: Generalized thought tracker; the MCP client/LLM evaluates tool catalog and orchestrates execution and narrative
+ - **Idempotency**: Read tools are side‑effect free and safe to retry; paginated reads bind cursors to file `mtime` for snapshot determinism. Write/transform tools are non‑idempotent; clients should verify via read‑after‑write before retrying.
 
 ## Configuration
 
