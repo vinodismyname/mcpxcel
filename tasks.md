@@ -160,7 +160,7 @@
     - Use struct validation tags and custom validators (filepath, range) in typed handlers to reject invalid inputs before execution.
     - Keep JSON schemas in sync with validators and surface validation errors with correction examples.
     - _Requirements: 14.4, 16.1_
-  - [ ] 12.3 Document idempotency and retry guidance
+  - [x] 12.3 Document idempotency and retry guidance
     - Mark read operations as idempotent with safe retry flags and ensure response determinism across repeated calls.
     - Label write/transform tools with idempotency metadata and provide compensating action guidance where retries are unsafe.
     - _Requirements: 11.3, 11.4_

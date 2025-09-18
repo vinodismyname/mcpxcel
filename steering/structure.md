@@ -90,3 +90,4 @@ Model new folders on tool boundaries to keep handlers, caches, and policy module
 - **Runtime limits**: Versioned in `config/` or `internal/runtime/config.go`
 - **Workbook allow-lists**: Configurable directory restrictions
 - **Default limits**: Document effective defaults for MCP client understanding
+- **Idempotency policy**: See design.md “Idempotency & Retries” for retry-safe reads and non-idempotent write guidance

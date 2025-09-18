@@ -14,11 +14,11 @@ import (
 
 // FunnelAnalysisInput computes stage and cumulative conversion across ordered stages.
 type FunnelAnalysisInput struct {
-    Path         string `json:"path" validate:"required,filepath_ext" jsonschema_description:"Canonical Excel file path (allowed directories enforced)"`
-    Sheet        string `json:"sheet" validate:"required" jsonschema_description:"Sheet name"`
-    Range        string `json:"range" validate:"required,a1orname" jsonschema_description:"A1-style range or defined name covering header + data"`
-    StageIndices []int  `json:"stage_indices,omitempty" validate:"dive,min=1" jsonschema_description:"Ordered 1-based column indices within the range for funnel stages; if omitted, detect from header names"`
-    MaxCells     int    `json:"max_cells,omitempty" validate:"omitempty,min=1" jsonschema_description:"Max cells to process (bounded by global limits)"`
+	Path         string `json:"path" validate:"required,filepath_ext" jsonschema_description:"Canonical Excel file path (allowed directories enforced)"`
+	Sheet        string `json:"sheet" validate:"required" jsonschema_description:"Sheet name"`
+	Range        string `json:"range" validate:"required,a1orname" jsonschema_description:"A1-style range or defined name covering header + data"`
+	StageIndices []int  `json:"stage_indices,omitempty" validate:"dive,min=1" jsonschema_description:"Ordered 1-based column indices within the range for funnel stages; if omitted, detect from header names"`
+	MaxCells     int    `json:"max_cells,omitempty" validate:"omitempty,min=1" jsonschema_description:"Max cells to process (bounded by global limits)"`
 }
 
 type StageMetric struct {
