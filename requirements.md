@@ -97,11 +97,11 @@ The MCP Excel Analysis Server is a Model Context Protocol (MCP) compliant servic
 
 ### Requirement 9
 
-**User Story:** As an AI assistant, I want a domain-neutral planning tool and bounded insight primitives so that I can iteratively reason about a user’s objective, ask clarifying questions, execute recommended steps, and present concise findings without raw data dumps.
+**User Story:** As an AI assistant, I want a domain-neutral sequential thinking tool and bounded insight primitives so that I can iteratively reason, keep context (including branches), choose appropriate tools from the catalog, and present concise findings without raw data dumps.
 
 #### Acceptance Criteria
 
-1. WHEN the `sequential_insights` tool is called THEN the system SHALL return a planning payload containing: (a) `current_step` with a brief description, (b) `recommended_tools` each with `tool_name`, `confidence` (0–1), `rationale`, `priority`, and `suggested_inputs`, (c) `questions` when ambiguity exists (e.g., multiple tables, multiple date columns), and (d) optional `insight_cards` summarizing bounded findings.
+1. WHEN the `sequential_insights` tool is called THEN the system SHALL record the submitted thought and return a loop payload containing: (a) `thought_number`, `total_thoughts`, and `next_thought_needed`, (b) a `session_id` to continue the loop, (c) `branches[]` and `thought_history_length`, and (d) optional `insight_cards` with tiny planning meta.
 2. WHEN insight cards are returned THEN they SHALL contain a clear finding, quantitative impact, a compact evidence snippet, stated assumptions, and a next action; raw tables SHALL NOT be returned.
 3. WHEN bounded compute is enabled THEN the system SHALL provide deterministic primitives under configured caps: change over time and variance to baseline/target, driver ranking (Top ± movers with Top‑N capping + "Other"), composition/mix shift (±5pp threshold), concentration metrics (Top‑N share and HHI bands), robust outliers (modified z‑score with |z|≥3.5, ≤5 reported), funnel stage conversions when stage columns are detected or hinted.
 4. WHEN limits are exceeded or ambiguity remains THEN the system SHALL degrade to planning-only responses with explicit `questions` and actionable `recommended_tools` to proceed safely.
@@ -130,11 +130,12 @@ The MCP Excel Analysis Server is a Model Context Protocol (MCP) compliant servic
 
 ### Requirement 11
 
-**User Story:** As an AI assistant, I want to work with the system in a stateless manner, so that I can make requests without maintaining persistent connections or sessions.
+**User Story:** As an AI assistant, I want the system to keep a simple in‑memory session for sequential thinking, so that I can iterate naturally without sending large context each time.
 
 #### Acceptance Criteria
 
-1. WHEN requests are made THEN the system SHALL NOT require persistent server-side sessions
+1. WHEN sequential_insights requests are made THEN the system SHALL allow a short‑lived in‑memory session identified by `session_id` with bounded history and no persistence
+2. WHEN domain tools (e.g., read_range, search_data) are used THEN they SHALL remain path/cursor-first and stateless from the client perspective
 2. WHEN workbook identifiers are provided THEN the system SHALL accept them as parameters for each operation
 3. WHEN operations are retried THEN read operations SHALL be idempotent and return consistent results
 4. WHEN write operations are retried THEN the system SHALL provide safe retry semantics or clear non-idempotent labeling

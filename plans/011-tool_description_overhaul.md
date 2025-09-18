@@ -43,8 +43,8 @@ Filters rows using a boolean predicate over 1‑based column references and retu
 Parameters: `path`, `sheet`, `predicate` (grammar above), `columns` (optional 1‑based columns to evaluate), `max_rows` (bounded), `snapshot_cols` (bounded), and optional `cursor` (rows unit, predicate/columns hash bound, path+mtime bound). Output: matched rows with snapshots and `meta`. Errors include predicate validation, `INVALID_SHEET`, and cursor mismatches.
 
 ### sequential_insights
-Domain‑neutral planning tool that helps orchestrate multi‑step spreadsheet analysis without a server‑embedded LLM. Provides clarifying questions, recommended tool calls (with confidence, rationale, priority, and suggested inputs), and optionally lightweight insight cards when bounded compute is enabled. Use for complex objectives that benefit from iterative planning and course correction (sequential thinking style). Planning‑only by default (no compute); client LLM narrates and executes recommended tools.
-Parameters: `objective` (analysis goal), `path` or `cursor` (cursor takes precedence), `hints` (e.g., sheet, range, date_col, id_col, measure, target, stages), `constraints` (caps such as max_rows, top_n), step‑tracking fields (`step_number`, `total_steps`, `next_step_needed`), and optional `revision`/`branch` identifiers. Output: `current_step`, `recommended_tools[]` (tool_name, confidence, rationale, priority, suggested_inputs, alternatives), `questions[]`, `insight_cards[]` (often empty), and `meta{limits,planning_only,compute_enabled,truncated}`. Errors: `PLANNING_FAILED` on internal errors.
+Generalized sequential thinking tool that tracks planning steps without domain heuristics. It records a `thought` with counters (`thought_number`, `total_thoughts`), optional revision/branch markers, and reports loop status. The LLM uses tool descriptions (via `list_tools`) to decide which domain tools to call; this tool does not recommend or prioritize tools. Always includes a tiny planning card with an interleaving cue; no analytics.
+Parameters: step‑tracking fields (`thought`, `thought_number`, `total_thoughts`, `next_thought_needed`), optional `revision`/`branch` identifiers, `session_id`/`reset_session`, and `show_available_tools` (to include the MCP tool catalog in text output). Output: loop state (`thought_number`, `total_thoughts`, `next_thought_needed`, `session_id`), `branches[]`, `thought_history_length`, `insight_cards[]` (always-on tiny planning card), and `meta{limits,planning_only,truncated}`. Errors: `PLANNING_FAILED` on internal errors.
 
 ### detect_tables
 Detects rectangular table regions within a sheet via a streaming scan (multiple tables per sheet) and returns Top‑K candidates with header previews and confidence. Use to quickly identify where structured data resides before further profiling/reads. Works on large sheets using streaming heuristics and respects global caps.
@@ -68,7 +68,7 @@ Parameters: `path`, `sheet`, `range`, plus stage name patterns/hints and optiona
 
 ## Implementation Steps
 1) Update descriptions in `internal/registry/tools_foundation.go` for: list_structure, preview_sheet, read_range, search_data, filter_data.
-2) Update descriptions in `internal/registry/insights.go` for: sequential_insights (sequential thinking style), detect_tables, profile_schema, composition_shift, concentration_metrics, funnel_analysis.
+2) Update descriptions in `internal/registry/insights.go` for: sequential_insights (generalized thought tracker), detect_tables, profile_schema, composition_shift, concentration_metrics, funnel_analysis.
 3) Strengthen parameter `mcp.Description(...)` for cursor precedence, units, column indexing (1‑based), predicate grammar, regex semantics, encoding, and snapshot bounds.
 4) Build and validate: `make lint && make test && make test-race`.
 5) Smoke test: run server, call `list_tools`, confirm descriptions and parameter help render fully and accurately.
@@ -84,4 +84,3 @@ Parameters: `path`, `sheet`, `range`, plus stage name patterns/hints and optiona
 - Ensure preview/read text content remains prefixed with a one‑line summary; structured metadata is unchanged.
 - Verify cursor unit expectations per tool: preview/search/filter → rows; read_range → cells.
 - Confirm error mapping text remains stable to avoid client regressions.
-

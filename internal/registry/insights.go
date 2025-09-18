@@ -15,12 +15,46 @@ import (
 
 // RegisterInsightsTools wires the sequential_insights planning tool.
 func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Limits, mgr *workbooks.Manager) {
-	planner := &insights.Planner{Limits: limits, Mgr: mgr}
+	planner := &insights.Planner{Limits: limits, Sessions: insights.NewSessionStore(20)}
 
 	// Define tool with typed schemas
 	tool := mcp.NewTool(
 		"sequential_insights",
-		mcp.WithDescription("A sequential thinking planner for dynamic, reflective Excel analysis. It breaks an ambiguous objective into concrete steps, recommends MCP tools with parameters and rationale, and tracks progress so you can revise, branch, or continue as understanding deepens. Planning‑only by default; deterministic compute primitives are gated by config and disabled by default.\n\nWhen to use: breaking down complex or multi‑step workbook tasks; planning with room for revision; maintaining context across steps; deciding which tools to call and in what order; filtering out irrelevant details while staying within limits.\n\nKey behaviors: adjust total_steps up or down as you go; mark next_step_needed when more iteration is required; revise or branch using revision/branch fields; generate a hypothesis and verify it via subsequent steps; emit recommended_tools with confidence, rationale, priority, suggested_inputs, and alternatives; ask clarifying questions when the context is ambiguous; surface effective limits and truncation in meta.\n\nParameters (cursor takes precedence over path): objective (required); path or cursor (cursor binds to canonical path + file mtime); hints (e.g., sheet, range, date_col, id_col, measure, target, stages); constraints (e.g., max_rows, top_n, max_groups); step_number (1‑based), total_steps (estimate), next_step_needed (bool), revision (free‑form), branch (free‑form).\n\nOutputs: current_step (concise step description), recommended_tools[{tool_name, confidence (0–1), rationale, priority, suggested_inputs, alternatives}], questions[], optional insight_cards[] (planning‑only by default), and meta{limits, planning_only, compute_enabled, truncated}. Guidance: start with list_structure/preview_sheet to ground context; keep steps small and reversible; prefer cursor‑first pagination; only set next_step_needed=false when a satisfactory answer is reached."),
+		mcp.WithDescription(`A generalized thought-tracking tool to guide iterative Excel analysis.
+  Use this to externalize your reasoning steps and maintain a lightweight plan while you call domain tools.
+
+  Behavior:
+  - Records thought_number/total_thoughts, branches, and session_id
+  - Always includes a tiny planning card with a next-action cue
+  - Optionally lists available tools when show_available_tools=true
+  - No recommendations or questions are generated; you choose domain tools
+
+  When to use:
+  - Start your analysis with an initial thought and plan
+  - After each domain tool call, summarize what you learned and your next step
+  - When revising prior steps or branching your approach
+
+  Parameters:
+  - thought: Your current step (analysis, revision, hypothesis)
+  - next_thought_needed: Continue planning (true) or complete (false)
+  - thought_number: Current step index (can exceed initial total)
+  - total_thoughts: Estimated steps (adjustable during process)
+  - is_revision/revises_thought: Mark corrections to previous thinking
+  - branch_from_thought/branch_id: Explore alternative analysis paths
+  - session_id: Resume session or start new (auto-created if omitted)
+  - reset_session: Clear and restart the referenced session
+  - show_available_tools: Include MCP tool catalog in response
+
+  Outputs:
+  - thought_number/total_thoughts/next_thought_needed/session_id
+  - branches[] and thought_history_length
+  - insight_cards[]: Always-on tiny planning card with next-action cue
+  - meta: limits and planning_only=true
+
+  Guidance:
+  - Interleave: call this tool between domain tool calls (list_structure, preview_sheet, read_range, detect_tables, profile_schema, etc.)
+  - If unsure what to do next, set show_available_tools=true to review the tool catalog
+  - Keep thoughts concise and focused on the immediate next action`),
 		mcp.WithInputSchema[insights.SequentialInsightsInput](),
 		mcp.WithOutputSchema[insights.SequentialInsightsOutput](),
 	)
@@ -30,10 +64,49 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 		if err != nil {
 			return mcperr.FromText("PLANNING_FAILED: " + err.Error()), nil
 		}
-		// Attach a concise text summary for clients ignoring structured out
-		summary := out.CurrentStep
+
+		// Build a readable text response for clients that only render text
+		var lines []string
+		// Thought summary with loop tracking
+		lines = append(lines, fmt.Sprintf("Thought %d/%d next=%v", out.ThoughtNumber, out.TotalThoughts, out.NextThoughtNeeded))
+		lines = append(lines, fmt.Sprintf("Session: %s", out.SessionID))
+
+		if len(out.Branches) > 0 {
+			lines = append(lines, fmt.Sprintf("Branches: %v", out.Branches))
+		}
+		lines = append(lines, fmt.Sprintf("History length: %d", out.ThoughtHistoryLength))
+
+		// Interleaving cue to encourage calling this tool between domain actions
+		lines = append(lines, "NextAction: summarize findings here, then call your next MCP tool; loop back with your next thought.")
+
+		// Available tools (help list), gated by input flag
+		if in.ShowAvailableTools {
+			if reg != nil {
+				if tools, err := reg.Tools(ctx); err == nil && len(tools) > 0 {
+					lines = append(lines, "")
+					lines = append(lines, "Available tools:")
+					for _, t := range tools {
+						desc := t.Description
+						if strings.TrimSpace(desc) == "" {
+							desc = "(no description)"
+						}
+						desc = truncateText(desc, 160)
+						lines = append(lines, fmt.Sprintf("- %s — %s", t.Name, desc))
+					}
+				}
+			}
+		} else {
+			// Light nudge to surface the catalog early when not requested
+			if out.ThoughtNumber <= 2 {
+				lines = append(lines, "Tip: set show_available_tools=true to list available MCP tools.")
+			}
+		}
+
+		text := strings.Join(lines, "\n")
+
+		summary := fmt.Sprintf("thought %d/%d", out.ThoughtNumber, out.TotalThoughts)
 		res := mcp.NewToolResultStructured(out, summary)
-		res.Content = []mcp.Content{mcp.NewTextContent(summary)}
+		res.Content = []mcp.Content{mcp.NewTextContent(text)}
 		return res, nil
 	}))
 
@@ -219,4 +292,19 @@ func previewHeader(h []string, n int) []string {
 		return h
 	}
 	return h[:n]
+}
+
+// truncateText returns a rune-safe truncated string with an ellipsis when needed.
+func truncateText(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if len(s) <= max {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
 }
