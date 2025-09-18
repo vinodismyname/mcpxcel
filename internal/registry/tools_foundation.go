@@ -721,16 +721,8 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		if snapshotCols <= 0 || snapshotCols > 256 {
 			snapshotCols = 16
 		}
-		// Build column filter set
+		// We'll build the column filter after resolving cursor/inputs
 		var colFilter map[int]struct{}
-		if len(in.Columns) > 0 {
-			colFilter = make(map[int]struct{}, len(in.Columns))
-			for _, c := range in.Columns {
-				if c >= 1 {
-					colFilter[c] = struct{}{}
-				}
-			}
-		}
 
 		// Cursor precedence: when provided, override sheet/maxResults from token; validate hash/version
 		var startOffset int
@@ -754,6 +746,16 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 				}
 			}
 			sheet = pc.S
+			// If query/regex/columns are not provided on resume, recover them from cursor when available
+			if query == "" && pc.Q != "" {
+				query = pc.Q
+			}
+			if !in.Regex && pc.Rg {
+				regex = true
+			}
+			if len(in.Columns) == 0 && len(pc.Cl) > 0 {
+				in.Columns = pc.Cl
+			}
 			startOffset = pc.Off
 			if pc.Ps > 0 && pc.Ps < maxResults {
 				maxResults = pc.Ps
@@ -762,6 +764,16 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		} else {
 			if sheet == "" || query == "" {
 				return mcp.NewToolResultError("VALIDATION: sheet and query are required (or supply cursor)"), nil
+			}
+		}
+
+		// Build column filter set from final in.Columns (possibly recovered from cursor)
+		if len(in.Columns) > 0 {
+			colFilter = make(map[int]struct{}, len(in.Columns))
+			for _, c := range in.Columns {
+				if c >= 1 {
+					colFilter[c] = struct{}{}
+				}
 			}
 		}
 
@@ -877,6 +889,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 					Ps:  maxResults,
 					Wbv: wbvNow,
 					Qh:  qh,
+					Q:   query,
+					Rg:  regex,
+					Cl:  in.Columns,
 				}
 				token, encErr := pagination.EncodeCursor(next)
 				if encErr != nil {

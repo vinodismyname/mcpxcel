@@ -44,6 +44,10 @@ type Cursor struct {
 	Iat int64  `json:"iat"`
 	Qh  string `json:"qh,omitempty"`
 	Ph  string `json:"ph,omitempty"`
+	// Optional: carry original search/filter parameters to enable cursor-only resume
+	Q  string `json:"q,omitempty"`  // original query for search_data
+	Rg bool   `json:"rg,omitempty"` // regex flag for search_data
+	Cl []int  `json:"cl,omitempty"` // columns filter for search_data
 }
 
 // EncodeCursor serializes and encodes the cursor as URL-safe base64 (without padding).
