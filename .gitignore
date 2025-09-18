@@ -18,6 +18,10 @@ dist/
 .idea/
 *.swp
 *.swo
+.claude/
+
+# OS artifacts
+.DS_Store
 
 # Excel files (except fixtures)
 *.xlsx
@@ -26,4 +30,3 @@ dist/
 !testdata/*.xlsx
 !testdata/*.xlsm
 !testdata/*.xls
-
