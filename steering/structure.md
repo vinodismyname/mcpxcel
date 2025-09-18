@@ -9,6 +9,7 @@
 │   ├── runtime/         # Concurrency controls and limits
 │   ├── registry/        # Tool registration and wiring
 │   ├── workbooks/       # Excelize adapters and workbook management
+│   ├── insights/        # Sequential insights planning + primitives (domain-neutral)
 │   └── integration/     # Integration tests (behind build tag)
 ├── pkg/                 # Reusable helpers for external sharing
 ├── testdata/           # Sanitized .xlsx fixtures for testing
@@ -33,6 +34,7 @@
 - **`internal/runtime`**: Concurrency controls, semaphores, resource limits
 - **`internal/registry`**: Tool registration, MCP server setup, handler wiring
 - **`internal/workbooks`**: Excelize adapters and workbook access by canonical path with TTL caching
+- **`internal/insights`**: Planning tool and deterministic, bounded primitives (variance, composition, concentration, funnel, quality)
 
 ### Supporting Packages
 
@@ -50,7 +52,7 @@
 
 ### Tool Handlers
 - **Pattern**: `VerbNoun` naming
-  - Examples: `OpenWorkbookHandler`, `FilterDataHandler`, `AnalyzeDataHandler`
+  - Examples: `OpenWorkbookHandler`, `FilterDataHandler`, `GenerateInsightsHandler`, `DetectTablesHandler`
 
 ### Test Files
 - **Location**: `*_test.go` files beside the code they exercise

@@ -22,7 +22,8 @@ A Model Context Protocol (MCP) server built in Go that enables AI assistants to 
 - Server-side aggregation and summary statistics
 - Targeted search and filtering operations
 - Safe write operations with bounded payloads
-- Insight generation without raw data exposure
+- Sequential Insights planning with domain-neutral primitives (no server LLM)
+- Multiple-table detection within a sheet and schema profiling
 
 ## Repository & Releases
 

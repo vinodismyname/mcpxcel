@@ -5,7 +5,7 @@
 - **Language**: Go 1.25+
 - **MCP Framework**: mark3labs/mcp-go for Model Context Protocol server implementation
 - **Excel Processing**: Excelize (github.com/xuri/excelize/v2) for spreadsheet operations
-- **LLM Integration**: LangChain-Go for multi-provider LLM support (OpenAI, Anthropic, AWS Bedrock)
+- **Insights Engine**: Domain-neutral, deterministic primitives (no server-embedded LLM)
 
 ## Build System
 
@@ -39,7 +39,7 @@ go test -race ./internal/...  # Race detection for concurrency
 
 - **MCP Server**: `github.com/mark3labs/mcp-go`
 - **Excel Processing**: `github.com/xuri/excelize/v2`
-- **LLM Integration**: `github.com/tmc/langchaingo`
+- **Insights (internal)**: `internal/insights` package for planning + primitives (sequential insights)
 
 ## Architecture Patterns
 
@@ -48,11 +48,12 @@ go test -race ./internal/...  # Race detection for concurrency
 - **Bounded Operations**: All operations have configurable limits (10k cells, 128KB payloads, 200 rows)
 - **Path-First API**: Tools accept `path` or `cursor`; no client-visible workbook IDs
 - **Stateless Design**: No persistent server-side sessions; internal handle cache keyed by canonical path for efficiency
+- **Sequential Insights**: Planning tool suggests steps + deterministic primitives; the MCP client/LLM orchestrates execution and narrative
 
 ## Configuration
 
-- Environment variables for LLM provider selection (LLM_PROVIDER=openai|anthropic)
 - Configurable limits for file size (20MB default), payload size, and operation bounds
+- Feature flags for insights: enable bounded compute, thresholds (max groups, outlier cap, mix threshold)
 - Local file system access with optional directory allow-lists for security
 
 ## CI & Repository Integration

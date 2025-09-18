@@ -2,11 +2,11 @@
 
 ## Overview
 
-The MCP Excel Analysis Server is a Go-based Model Context Protocol (MCP) service that exposes Excel-centric tools to large language model (LLM) assistants. The system minimizes token usage by streaming targeted slices, summaries, and metadata instead of entire workbooks. The implementation rests on three core libraries:
+The MCP Excel Analysis Server is a Go-based Model Context Protocol (MCP) service that exposes Excel-centric tools to AI assistants. The system minimizes token usage by streaming targeted slices, summaries, and metadata instead of entire workbooks. The implementation rests on two core libraries plus an internal insights engine:
 
 - **mark3labs/mcp-go** for protocol compliance, typed tool schemas, lifecycle hooks, and transport support.[^mcp-basics]
 - **qax-os/excelize** for low-level workbook access, streaming readers, and concurrency-safe writes over large spreadsheets.[^excelize-rows]
-- **tmc/langchaingo** (LangChainGo) for composing LLM-powered insight pipelines, memory management, and chain orchestration.[^lchain-arch]
+- **internal/insights** for domain-neutral planning and deterministic primitives (no server-embedded LLM)
 
 Server design is path-first and stateless from a client perspective: tools take a canonical file `path`, and pagination cursors carry all information needed to resume without transient IDs. Internally, a TTL-based handle cache keyed by canonical path is used only as an optimization. Configuration-driven guardrails enforce payload, concurrency, and directory boundaries.
 
@@ -15,7 +15,7 @@ Server design is path-first and stateless from a client perspective: tools take 
 1. **Requirement Coverage** – Every tool maps to requirements 1–15 and 16.1, with discoverable schemas and metadata defaults. 
 2. **Streaming First** – Reads and writes prefer Excelize iterators and stream writers to cap memory usage (Req. 2, 3, 5, 8).
 3. **Deterministic Concurrency** – Per-request goroutines, per-workbook locks, and server-wide semaphores satisfy Requirements 1, 6–8, 11–12.
-4. **LLM-ready Insights** – Analytical operations generate concise summaries via LangChainGo chains while respecting payload limits (Req. 4, 9).
+4. **LLM-ready Insights** – Analytical operations provide domain-neutral planning and deterministic primitives; clients (LLMs) orchestrate execution and narrative (Req. 4, 9).
 5. **Protocol Fidelity** – Typed tools and structured errors mirror MCP expectations (Req. 14–16.1).
 
 ## High-Level Architecture
@@ -32,9 +32,9 @@ graph TD
         C --> D[Tool Registry]
         C --> E[Concurrency & Rate Controller]
         D --> F[Workbook Lifecycle]
-        D --> G[Analytics & Insight Engine]
+        D --> G[Sequential Insights Engine]
         F --> H[Streaming IO (excelize)]
-        G --> I[LangChainGo Chains]
+        G --> I[Planning + Deterministic Primitives]
                
         C --> J[Security & Policy]
         C --> K[Logging Hooks]
@@ -55,7 +55,7 @@ graph TD
 1. **Protocol Layer** – Builds `server.NewMCPServer` with tool capabilities plus panic recovery and hooks.[^mcp-basics]  
 2. **Tool Layer** – Typed tool definitions and handlers cover workbook lifecycle, structure discovery, range operations, search, filtering, analytics, write/update, and insight generation.  
 3. **Data Layer** – Streaming access via `Rows`, `Cols`, and `StreamWriter` iterators for predictable memory use.[^excelize-rows][^excelize-stream]  
-4. **Insight Layer** – LangChainGo sequences orchestrate descriptive statistics + LLM summarization with configurable memory strategies.[^lchain-chains][^lchain-memory]
+4. **Insight Layer** – Sequential Insights planning with bounded, deterministic primitives (variance, composition, concentration, funnel, quality). Clients (LLMs) ask clarifying questions and narrate.
 5. **Security Layer** – Path allow-listing, payload thresholds, and audit logging satisfy directory and compliance requirements.
 
 ## Component Breakdown
@@ -94,7 +94,7 @@ type RuntimeController struct {
 
 - `requests` bounds total concurrent tool calls (Requirement 12.1). When saturation occurs, handlers either queue (blocking Acquire with timeout) or return `BUSY_RESOURCE`.
 - `openWb` keeps workbook handles under `MaxOpenWorkbooks`; eviction strategy prefers least-recently-used handles managed by the workbook cache.
-- Each tool handler receives the parent `context.Context` so cancellations propagate to Excelize iterators and LangChainGo chains.
+- Each tool handler receives the parent `context.Context` so cancellations propagate to Excelize iterators.
 
 ### Tool Registry (`internal/registry`)
 
@@ -108,7 +108,12 @@ type RuntimeController struct {
 | `filter_data` | 8 | Executes predicate engine with row streaming and stable cursors. |
 | `compute_statistics` | 4 | Calculates stats up to configured cell limits, streaming columns. |
 | `search_data` | 5 | Utilizes `SearchSheet` with optional column filters.[^excelize-rows] |
-| `generate_insight` | 9 | Pipes structured stats into LangChainGo sequential chain for summary. |
+| `sequential_insights` | 9,14 | Planning tool returning questions, recommended tool calls, and insight cards; can run bounded primitives. |
+| `detect_tables` | 2 | Detects multiple table regions (ranges) within a sheet; returns Top-K candidates. |
+| `profile_schema` | 4 | Role inference (measure/dimension/time/id/target) + data quality checks. |
+| `composition_shift` | 4 | Quantifies share changes and net effect on KPI (±5pp threshold). |
+| `concentration_metrics` | 4 | Computes Top-N share and HHI bands. |
+| `funnel_analysis` | 4 | Stage detection from column names/hints; step and cumulative conversion; bottleneck cards. |
 | `metadata_only` | 2.4, 15 | Returns workbook limits, config, and usage metadata. |
 
 Tool schemas are declared with typed handlers to leverage automatic validation:[^mcp-typed]
@@ -154,25 +159,13 @@ type WorkbookManager struct {
 
 Pagination cursors capture sheet name, offset, and timestamp to provide stable iteration even with concurrent writes (Requirement 14.1).
 
-### Analytics & Insight Engine (`internal/insights`)
+### Sequential Insights Engine (`internal/insights`)
 
-The insight pipeline combines deterministic statistics with language-model summaries while keeping token budgets under control.
+The insights engine provides a planning loop and bounded, deterministic primitives:
 
-```go
-statsChain := chains.NewSequentialChain([]chains.Chain{
-    chains.NewLLMChain(llm, statsPrompt),
-    chains.NewLLMChain(llm, insightPrompt),
-})
-
-memory := memory.NewTokenBufferMemory(
-    memory.WithTokenLimit(limits.InsightTokenBudget),
-)
-conversation := chains.NewConversationChain(llm, memory)
-```
-
-- Selects memory strategy (token-buffer vs. summary) per workload; LangChainGo warns against sharing memory instances across conversations, so each insight job obtains a fresh memory object.[^lchain-memory]
-- Chains execute with `context.Context` deadlines derived from `OperationTimeout` to enforce predictable runtimes.[^lchain-arch]
-- LLM calls use fallback responses when upstream providers fail, satisfying Requirement 9.3.
+- Planning: takes objective + context; returns questions, recommended tool calls with confidence/rationale, and insight cards.
+- Primitives: change over time, variance to baseline/target, driver ranking (Top ± movers), composition shift, concentration (Top-N share, HHI bands), robust outliers (modified z-score), funnel analysis, and data quality checks.
+- Safety: streaming algorithms, Top-N capping with "Other", conservative thresholds, explicit assumptions, and truncation metadata.
 
 ### Security, Validation & Audit (`internal/security`)
 
@@ -208,7 +201,7 @@ sequenceDiagram
     MCP-->>Client: Range data + metadata + nextCursor
 ```
 
-### Insight Generation
+### Sequential Insights
 
 ```mermaid
 sequenceDiagram
@@ -216,17 +209,14 @@ sequenceDiagram
     participant MCP as MCP Server
     participant Runtime
     participant Insights
-    participant LangChain
+    participant Insights
 
-   Client->>MCP: call_tool(generate_insight,...)
+   Client->>MCP: call_tool(sequential_insights,...)
    MCP->>Runtime: Acquire request token
-   Runtime->>Insights: Build stats request
-   Insights->>Insights: Compute descriptive stats (streaming)
-   Insights->>LangChain: Execute sequential chain with memory
-   LangChain-->>Insights: Summary text, key takeaways
-   Insights-->>MCP: Structured insight payload
+   Runtime->>Insights: Table detection → role inference → (optional) bounded primitives
+   Insights-->>MCP: Questions, recommended tools, and insight cards
    Runtime->>Runtime: Release request token
-   MCP-->>Client: Summary + stats + truncation metadata
+   MCP-->>Client: Plan + cards + truncation metadata
 ```
 
 ## Pagination Cursors
@@ -327,11 +317,10 @@ sequenceDiagram
 3. For search operations, call `f.SearchSheet(sheet, value, regex)` and post-filter results to honour match limits (Requirement 5.1–5.2).
 4. Always apply per-workbook RW locks around Excelize calls because the struct is not inherently thread safe for concurrent writes.
 
-### LangChainGo Integration
+### Insights Configuration
 
-1. Follow the architecture guideline: pass `context.Context` into every chain or LLM call and honour cancellations.[^lchain-arch]
-2. Choose memory implementation per workload (buffer, token buffer, summary) and never share memory between chains, per LangChainGo best practices.[^lchain-memory]
-3. Compose insight workflows with sequential chains or conversation chains for reuse; prefer deterministic prompts that respect the configured character cap (Requirement 9.1–9.2).[^lchain-chains]
+1. Feature flags: enable bounded compute, configure thresholds (max groups, outlier count limit, mix threshold, Top-N size).
+2. Always stream and respect context deadlines; degrade to planning-only when limits/timeouts are hit.
 
 ### Error Handling
 
@@ -349,12 +338,12 @@ sequenceDiagram
 1. **Unit Tests** – Cover tool handlers with table-driven tests for validation, concurrency, and error mapping. Mock Excelize interfaces for edge cases.
 2. **Concurrency Tests** – Simulate simultaneous reads/writes using Go race detector and wait groups to assert locking behaviour (Requirement 12).
 3. **Streaming Tests** – Use large fixture files to ensure iterators keep memory usage below thresholds and pagination cursors remain stable (Requirement 3, 14.1).
-4. **LLM Pipeline Tests** – Mock LangChainGo chains to validate fallback logic when providers fail; include token budget enforcement.
+4. **Insights Tests** – Validate planner recommendations and primitive correctness; verify truncation and safety caps.
 5. **Protocol Tests** – Exercise `list_tools` and error payloads using the MCP client harness.
 
 ## Performance & Scaling
 
-- Use connection pooling for outbound HTTP clients (LLMs) as in LangChainGo architecture guidance.[^lchain-arch]
+- The server has no outbound LLM calls. Clients (LLMs) orchestrate using MCP.
 - Support horizontal scaling by running multiple stateless server replicas; long-running workbook handles live in-process only.
 
 ## Security & Compliance
@@ -388,6 +377,4 @@ sequenceDiagram
 [^mcp-advanced]: mark3labs/mcp-go, "Advanced Server Features" – hooks, middleware, notifications. <https://github.com/mark3labs/mcp-go/blob/main/www/docs/pages/servers/advanced.mdx>
 [^excelize-rows]: qax-os/excelize documentation, "Worksheet" – streaming row and column iterators, concurrency guarantees. <https://github.com/xuri/excelize-doc/blob/master/en/sheet.md>
 [^excelize-stream]: qax-os/excelize documentation, "Streaming write" – `StreamWriter` usage and constraints. <https://github.com/xuri/excelize-doc/blob/master/en/stream.md>
-[^lchain-arch]: tmc/langchaingo documentation, "Architecture" – context-first design, concurrency, and error handling. <https://github.com/tmc/langchaingo/blob/main/docs/docs/concepts/architecture.md>
-[^lchain-chains]: tmc/langchaingo documentation, "Chains" – sequential execution and Call/Run/Predict helpers. <https://github.com/tmc/langchaingo/blob/main/docs/docs/modules/chains/index.mdx>
-[^lchain-memory]: tmc/langchaingo documentation, "Memory" – memory types, isolation guidance, best practices. <https://github.com/tmc/langchaingo/blob/main/docs/docs/modules/memory/index.mdx>
+<!-- Sequential insights draws on MCP planning patterns and Excelize streaming docs; no server-embedded LLM. -->
