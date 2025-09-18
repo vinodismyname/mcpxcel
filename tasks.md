@@ -100,7 +100,7 @@
 
 - [ ] 9. Implement data analysis, search, and filtering capabilities
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 5.1, 5.2, 5.3, 5.4, 8.1, 8.2, 8.3, 8.4_
-  - [ ] 9.1 Build compute_statistics tool with streaming analysis
+  - [x] 9.1 Build compute_statistics tool with streaming analysis
     - Aggregate stats per column using streaming reducers (count, sum, avg, min/max, distinct) supporting up to configured cell limits.
     - Add group-by aggregation using map reducers with memory budgeting and fallback to suggestions when limits exceed.
     - Surface structured result schema with units, precision, and resource usage hints for follow-on calls.

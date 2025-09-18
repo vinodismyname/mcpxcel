@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -858,6 +860,260 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 	// Annotate tool capability flags via log-friendly text until telemetry middleware is added
 	_ = fmt.Sprintf("foundation tools registered: %d", 7)
+
+	// compute_statistics
+	type ComputeStatisticsInput struct {
+		WorkbookID    string `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
+		Sheet         string `json:"sheet" jsonschema_description:"Sheet name"`
+		RangeA1       string `json:"range" jsonschema_description:"A1-style range or defined name to analyze"`
+		ColumnIndices []int  `json:"columns,omitempty" jsonschema_description:"1-based column indexes within the range; omitted means all"`
+		GroupByIndex  int    `json:"group_by_index,omitempty" jsonschema_description:"Optional 1-based column index within the range to group by"`
+		MaxCells      int    `json:"max_cells,omitempty" jsonschema_description:"Max cells to process (bounded)"`
+	}
+
+	type ColumnStats struct {
+		Count         int     `json:"count"`
+		DistinctCount int     `json:"distinct"`
+		Sum           float64 `json:"sum"`
+		Average       float64 `json:"average"`
+		Min           float64 `json:"min"`
+		Max           float64 `json:"max"`
+	}
+
+	type ComputeStatisticsOutput struct {
+		WorkbookID string `json:"workbook_id"`
+		Sheet      string `json:"sheet"`
+		RangeA1    string `json:"range"`
+		Meta       struct {
+			ProcessedCells int  `json:"processedCells"`
+			MaxCells       int  `json:"maxCells"`
+			Truncated      bool `json:"truncated"`
+		} `json:"meta"`
+		// One of the following will be populated
+		Columns []ColumnStats            `json:"columns,omitempty"`
+		Groups  map[string][]ColumnStats `json:"groups,omitempty"`
+	}
+
+	computeStats := mcp.NewTool(
+		"compute_statistics",
+		mcp.WithDescription("Compute per-column summary statistics with optional group-by using streaming analysis"),
+		mcp.WithInputSchema[ComputeStatisticsInput](),
+		mcp.WithOutputSchema[ComputeStatisticsOutput](),
+	)
+
+	// Helper to parse string to float64; returns value and ok flag
+	parseNumber := func(s string) (float64, bool) {
+		if s == "" {
+			return 0, false
+		}
+		// Try plain float
+		if v, err := strconv.ParseFloat(strings.ReplaceAll(s, ",", ""), 64); err == nil {
+			return v, true
+		}
+		return 0, false
+	}
+
+	// Reducer update for a single observation
+	updateStats := func(st *ColumnStats, val string, distinct map[string]struct{}) {
+		if val == "" {
+			return
+		}
+		// Distinct tracking by raw string
+		if _, ok := distinct[val]; !ok {
+			distinct[val] = struct{}{}
+			st.DistinctCount = len(distinct)
+		}
+		if f, ok := parseNumber(val); ok {
+			st.Count++
+			st.Sum += f
+			if st.Count == 1 {
+				st.Min = f
+				st.Max = f
+			} else {
+				st.Min = math.Min(st.Min, f)
+				st.Max = math.Max(st.Max, f)
+			}
+			st.Average = st.Sum / float64(st.Count)
+		}
+	}
+
+	s.AddTool(computeStats, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ComputeStatisticsInput) (*mcp.CallToolResult, error) {
+		id := strings.TrimSpace(in.WorkbookID)
+		sheet := strings.TrimSpace(in.Sheet)
+		rng := strings.TrimSpace(in.RangeA1)
+		if id == "" || sheet == "" || rng == "" {
+			return mcp.NewToolResultError("VALIDATION: workbook_id, sheet, and range are required"), nil
+		}
+		maxCells := in.MaxCells
+		if maxCells <= 0 || maxCells > limits.MaxCellsPerOp {
+			maxCells = limits.MaxCellsPerOp
+		}
+
+		var out ComputeStatisticsOutput
+		out.WorkbookID = id
+		out.Sheet = sheet
+		out.RangeA1 = rng
+		out.Meta.MaxCells = maxCells
+
+		err := mgr.WithRead(id, func(f *excelize.File, wbvNow int64) error {
+			// Resolve range coordinates and normalized textual range
+			x1, y1, x2, y2, normalizedRange, perr := resolveRange(f, sheet, rng)
+			if perr != nil {
+				return perr
+			}
+			rng = normalizedRange
+			out.RangeA1 = rng
+
+			// Determine which columns to include (1-based within range)
+			colCount := x2 - x1 + 1
+			indices := in.ColumnIndices
+			if len(indices) == 0 {
+				indices = make([]int, colCount)
+				for i := 0; i < colCount; i++ {
+					indices[i] = i + 1 // 1-based within range
+				}
+			} else {
+				// Validate provided indices
+				for _, idx := range indices {
+					if idx <= 0 || idx > colCount {
+						return fmt.Errorf("invalid column index %d; range has %d columns", idx, colCount)
+					}
+				}
+			}
+
+			// Group-by bounds
+			groupBy := in.GroupByIndex
+			if groupBy < 0 || groupBy > colCount {
+				return fmt.Errorf("invalid group_by_index %d; range has %d columns", groupBy, colCount)
+			}
+
+			rowsIter, rerr := f.Rows(sheet)
+			if rerr != nil {
+				return rerr
+			}
+			defer rowsIter.Close()
+
+			processed := 0
+			rowIdx := 0
+
+			// Initialize reducers
+			if groupBy == 0 {
+				out.Columns = make([]ColumnStats, len(indices))
+			}
+			groupStats := map[string][]ColumnStats{}
+			groupDistinctSets := map[string][]map[string]struct{}{}
+
+			// Build distinct sets per column for non-grouped mode
+			distinctSets := make([]map[string]struct{}, len(indices))
+			for i := range distinctSets {
+				distinctSets[i] = make(map[string]struct{})
+			}
+
+			maxGroups := maxCells / (len(indices) + 1)
+			if maxGroups <= 0 {
+				maxGroups = 1
+			}
+
+			for rowsIter.Next() {
+				rowIdx++
+				// Skip until first row of range
+				if rowIdx < y1 {
+					continue
+				}
+				if rowIdx > y2 {
+					break
+				}
+
+				rowVals, cerr := rowsIter.Columns()
+				if cerr != nil {
+					return cerr
+				}
+
+				// Determine group key when requested
+				var gkey string
+				if groupBy > 0 {
+					colIdx := x1 + (groupBy - 1) - 1 // zero-based absolute index
+					if colIdx >= 0 && colIdx < len(rowVals) {
+						gkey = rowVals[colIdx]
+					}
+					if gkey == "" {
+						gkey = "(empty)"
+					}
+					// Initialize group reducers lazily
+					if _, ok := groupStats[gkey]; !ok {
+						if len(groupStats) >= maxGroups {
+							return fmt.Errorf("too many groups: %d (max %d); narrow group_by or range", len(groupStats)+1, maxGroups)
+						}
+						groupStats[gkey] = make([]ColumnStats, len(indices))
+						set := make([]map[string]struct{}, len(indices))
+						for i := range set {
+							set[i] = make(map[string]struct{})
+						}
+						groupDistinctSets[gkey] = set
+					}
+				}
+
+				// Update stats for selected columns
+				for i, idxWithinRange := range indices {
+					absCol := x1 + (idxWithinRange - 1) - 1 // zero-based absolute column index
+					var cell string
+					if absCol >= 0 && absCol < len(rowVals) {
+						cell = rowVals[absCol]
+					}
+					if groupBy > 0 {
+						arr := groupStats[gkey]
+						sets := groupDistinctSets[gkey]
+						updateStats(&arr[i], cell, sets[i])
+						groupStats[gkey] = arr
+					} else {
+						updateStats(&out.Columns[i], cell, distinctSets[i])
+					}
+				}
+
+				processed += len(indices)
+				if processed >= maxCells {
+					out.Meta.Truncated = (rowIdx < y2)
+					break
+				}
+			}
+
+			out.Meta.ProcessedCells = processed
+			if groupBy > 0 {
+				out.Groups = groupStats
+			}
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, workbooks.ErrHandleNotFound) {
+				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+			}
+			lower := strings.ToLower(err.Error())
+			if strings.Contains(lower, "invalid range") || strings.Contains(lower, "coordinates") {
+				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
+			}
+			if strings.Contains(lower, "too many groups") {
+				return mcp.NewToolResultError("LIMIT_EXCEEDED: too many groups for available budget; narrow group_by or reduce range"), nil
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("STATISTICS_FAILED: %v", err)), nil
+		}
+
+		// Build concise summary string
+		var summary string
+		if len(out.Groups) > 0 {
+			summary = fmt.Sprintf("grouped stats: groups=%d cols=%d processed=%d truncated=%v", len(out.Groups), func() int {
+				if len(out.Groups) > 0 {
+					for _, v := range out.Groups {
+						return len(v)
+					}
+				}
+				return 0
+			}(), out.Meta.ProcessedCells, out.Meta.Truncated)
+		} else {
+			summary = fmt.Sprintf("stats: cols=%d processed=%d truncated=%v", len(out.Columns), out.Meta.ProcessedCells, out.Meta.Truncated)
+		}
+		return mcp.NewToolResultStructured(out, summary), nil
+	}))
+	reg.Register(computeStats)
 }
 
 // resolveRange parses an A1-style range or resolves a named range into coordinates.
