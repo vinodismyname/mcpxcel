@@ -311,7 +311,7 @@ sequenceDiagram
 
 - Cursors include canonical filesystem `path` to enable stateless resume and survive server restarts in this deployment model.
 - Encoding is URL-safe base64 to avoid escaping concerns in transports and logs.
- - Text payloads: For `search_data`, servers MAY include a one-line human-readable summary at the start of the text content (e.g., `matches=<total> returned=<n> truncated=<bool> nextCursor=<token>`), followed by a compact JSON array of results. This improves UX for clients that ignore structured metadata.
+ - Text payloads: For `search_data` and `filter_data`, servers include a one-line human-readable summary at the start of the text content (e.g., `matches=<total> returned=<n> truncated=<bool> nextCursor=<token>`), followed by a compact JSON array of results. Likewise, `preview_sheet` and `read_range` include a concise summary prefix (e.g., `total=<n> returned=<m> truncated=<bool> nextCursor=<token-or-empty>`) before the actual preview/range data. In all cases, the structured metadata remains authoritative; the summary line exists to aid clients that ignore structured fields.
 
 ### Error Semantics
 

@@ -297,13 +297,14 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		var sheetRange string
 		var fileMT int64
 		err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
-			// Validate cursor file mtime under read lock
+			// Compute current file mtime under read lock for cursor emission
+			if fi, serr := os.Stat(canonical); serr == nil {
+				fileMT = fi.ModTime().Unix()
+			}
+			// Validate cursor file mtime under read lock when resuming
 			if parsedCur != nil && parsedCur.Mt > 0 {
-				if fi, serr := os.Stat(canonical); serr == nil {
-					fileMT = fi.ModTime().Unix()
-					if parsedCur.Mt != fileMT {
-						return errCursorMtMismatch
-					}
+				if parsedCur.Mt != fileMT {
+					return errCursorMtMismatch
 				}
 			}
 
@@ -402,11 +403,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			// Compute truncation and cursor
 			meta.Truncated = meta.Total > 0 && (startOffset+meta.Returned) < meta.Total
 			if meta.Truncated {
-				// Build opaque next cursor with rows unit
-				var fileMT int64
-				if fi, serr := os.Stat(canonical); serr == nil {
-					fileMT = fi.ModTime().Unix()
-				}
+				// Build opaque next cursor with rows unit and bound mtime
 				next := pagination.Cursor{V: 1, Pt: canonical, S: sheet, R: sheetRange, U: pagination.UnitRows, Off: pagination.NextOffset(startOffset, meta.Returned), Ps: rowsLimit, Mt: fileMT}
 				token, _ := pagination.EncodeCursor(next)
 				meta.NextCursor = token
@@ -420,16 +417,23 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if errors.Is(err, errCursorMtMismatch) {
 				return mcp.NewToolResultError("CURSOR_INVALID: file changed since cursor was issued; restart pagination"), nil
 			}
-			if strings.Contains(strings.ToLower(err.Error()), "doesn't exist") {
+			if low := strings.ToLower(err.Error()); strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
 				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
 			}
 			return mcp.NewToolResultError(fmt.Sprintf("PREVIEW_FAILED: %v", err)), nil
 		}
 
 		out := PreviewSheetOutput{Path: canonical, Sheet: sheet, Encoding: enc, Meta: meta}
-		// Text content carries the actual preview data; structured carries metadata
+		// Text content carries a concise summary followed by the actual preview data
+		summary := fmt.Sprintf("total=%d returned=%d truncated=%v", out.Meta.Total, out.Meta.Returned, out.Meta.Truncated)
+		if out.Meta.Truncated {
+			// Surface nextCursor token for clients that ignore structured meta
+			summary = summary + " nextCursor=" + out.Meta.NextCursor
+		} else {
+			summary = summary + " nextCursor="
+		}
 		res := mcp.NewToolResultStructured(out, "preview generated")
-		res.Content = []mcp.Content{mcp.NewTextContent(textOut)}
+		res.Content = []mcp.Content{mcp.NewTextContent(summary + "\n" + textOut)}
 		return res, nil
 	}))
 	reg.Register(preview)
@@ -496,13 +500,14 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 		var fileMT int64
 		err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
+			// Compute current file mtime under read lock for cursor emission
+			if fi, serr := os.Stat(canonical); serr == nil {
+				fileMT = fi.ModTime().Unix()
+			}
 			// Validate mtime snapshot if resuming from a cursor
 			if parsedCur != nil && parsedCur.Mt > 0 {
-				if fi, serr := os.Stat(canonical); serr == nil {
-					fileMT = fi.ModTime().Unix()
-					if parsedCur.Mt != fileMT {
-						return errCursorMtMismatch
-					}
+				if parsedCur.Mt != fileMT {
+					return errCursorMtMismatch
 				}
 			}
 			// Resolve named range if needed
@@ -511,6 +516,22 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			x1, y1, x2, y2, outRange, parseErr = resolveRange(f, sheet, rng)
 			if parseErr != nil {
 				return parseErr
+			}
+
+			// Explicitly validate that the target sheet exists; otherwise GetCellValue calls
+			// on a non-existent sheet would quietly return empty values without an error.
+			// Using GetSheetMap avoids mutating iterators and is safe under read lock.
+			{
+				exists := false
+				for _, name := range f.GetSheetMap() {
+					if strings.EqualFold(name, sheet) {
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					return fmt.Errorf("sheet does not exist")
+				}
 			}
 
 			if x2 < x1 || y2 < y1 {
@@ -581,7 +602,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			meta.Returned = writtenCells
 			meta.Truncated = (startOffset + writtenCells) < total
 			if meta.Truncated {
-				// Build opaque next cursor
+				// Build opaque next cursor with bound mtime
 				next := pagination.Cursor{V: 1, Pt: canonical, S: sheet, R: outRange, U: pagination.UnitCells, Off: pagination.NextOffset(startOffset, writtenCells), Ps: maxCells, Mt: fileMT}
 				token, _ := pagination.EncodeCursor(next)
 				meta.NextCursor = token
@@ -600,16 +621,22 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if strings.Contains(lower, "invalid range") || strings.Contains(lower, "coordinates") {
 				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
 			}
-			if strings.Contains(lower, "doesn't exist") {
+			if strings.Contains(lower, "doesn't exist") || strings.Contains(lower, "does not exist") {
 				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
 			}
 			return mcp.NewToolResultError(fmt.Sprintf("READ_FAILED: %v", err)), nil
 		}
 
 		out := ReadRangeOutput{Path: canonical, Sheet: sheet, RangeA1: outRange, Meta: meta}
-		// Text payload is the data; structured holds metadata
+		// Text payload starts with a concise meta summary followed by data
+		summary := fmt.Sprintf("total=%d returned=%d truncated=%v", out.Meta.Total, out.Meta.Returned, out.Meta.Truncated)
+		if out.Meta.Truncated {
+			summary = summary + " nextCursor=" + out.Meta.NextCursor
+		} else {
+			summary = summary + " nextCursor="
+		}
 		res := mcp.NewToolResultStructured(out, "range read complete")
-		res.Content = []mcp.Content{mcp.NewTextContent(textOut)}
+		res.Content = []mcp.Content{mcp.NewTextContent(summary + "\n" + textOut)}
 		return res, nil
 	}))
 	reg.Register(readRange)
@@ -707,12 +734,13 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 		var fileMT int64
 		err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
+			// Compute current file mtime under read lock for cursor emission
+			if fi, serr := os.Stat(canonical); serr == nil {
+				fileMT = fi.ModTime().Unix()
+			}
 			if parsedCur != nil && parsedCur.Mt > 0 {
-				if fi, serr := os.Stat(canonical); serr == nil {
-					fileMT = fi.ModTime().Unix()
-					if parsedCur.Mt != fileMT {
-						return errCursorMtMismatch
-					}
+				if parsedCur.Mt != fileMT {
+					return errCursorMtMismatch
 				}
 			}
 
@@ -958,12 +986,13 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 		var fileMT int64
 		err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
+			// Compute current file mtime under read lock for cursor emission
+			if fi, serr := os.Stat(canonical); serr == nil {
+				fileMT = fi.ModTime().Unix()
+			}
 			if parsedCur != nil && parsedCur.Mt > 0 {
-				if fi, serr := os.Stat(canonical); serr == nil {
-					fileMT = fi.ModTime().Unix()
-					if parsedCur.Mt != fileMT {
-						return errCursorMtMismatch
-					}
+				if parsedCur.Mt != fileMT {
+					return errCursorMtMismatch
 				}
 			}
 			// Resolve used range and snapshot bounds
@@ -1185,7 +1214,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if strings.Contains(lower, "payload exceeds") {
 				return mcp.NewToolResultError("PAYLOAD_TOO_LARGE: reduce range size or split into batches"), nil
 			}
-			if strings.Contains(lower, "doesn't exist") {
+			if strings.Contains(lower, "doesn't exist") || strings.Contains(lower, "does not exist") {
 				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
 			}
 			return mcp.NewToolResultError(fmt.Sprintf("WRITE_FAILED: %v", err)), nil
@@ -1270,7 +1299,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if strings.Contains(lower, "exceeds max cells") {
 				return mcp.NewToolResultError("PAYLOAD_TOO_LARGE: reduce range size or split into batches"), nil
 			}
-			if strings.Contains(lower, "doesn't exist") {
+			if strings.Contains(lower, "doesn't exist") || strings.Contains(lower, "does not exist") {
 				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
 			}
 			return mcp.NewToolResultError(fmt.Sprintf("APPLY_FORMULA_FAILED: %v", err)), nil
