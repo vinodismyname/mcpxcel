@@ -138,6 +138,17 @@ srv.AddTool(readRangeTool, mcp.NewTypedToolHandler(handleReadRange))
 
 During startup, the registry publishes the tool catalog so `list_tools` reflects schemas, defaults, and payload ceilings (Requirement 16.1).
 
+#### Sequential Insights (Planning-Only default)
+
+The `sequential_insights` tool provides deterministic, domain‑neutral planning without a server‑embedded LLM. Inputs include `objective`, `path|cursor`, optional `hints`/`constraints`, and step tracking fields. Outputs contain:
+- `current_step` summary
+- `recommended_tools[]` with `tool_name`, `confidence` (0–1), `rationale`, `priority`, and `suggested_inputs`
+- `questions[]` for clarification (e.g., multiple sheets, missing time/measure hints)
+- `insight_cards[]` (empty in planning‑only mode)
+- `meta` with effective runtime limits and `planning_only=true`
+
+Cursor semantics take precedence over `path` when provided. Bounded compute primitives remain gated by config and are not enabled by default for this phase.
+
 ### Workbook Access & Streaming IO (`internal/workbook`)
 
 ```go

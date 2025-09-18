@@ -74,6 +74,8 @@ func main() {
 
 	// Register foundation tools with implementations wired to the workbook manager
 	registry.RegisterFoundationTools(srv, toolRegistry, runtimeController.LimitsSnapshot(), wbMgr)
+	// Register insights planning tool (planning-only by default)
+	registry.RegisterInsightsTools(srv, toolRegistry, runtimeController.LimitsSnapshot(), wbMgr)
 
 	toolContextSize := toolRegistry.ModelContextSize("gpt-4o")
 
