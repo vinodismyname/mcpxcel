@@ -12,11 +12,11 @@ import (
 	"github.com/rs/zerolog"
 	zlog "github.com/rs/zerolog/log"
 
-	"github.com/vinoddu/mcpxcel/internal/registry"
-	"github.com/vinoddu/mcpxcel/internal/runtime"
-	"github.com/vinoddu/mcpxcel/internal/security"
-	"github.com/vinoddu/mcpxcel/internal/workbooks"
-	"github.com/vinoddu/mcpxcel/pkg/version"
+	"github.com/vinodismyname/mcpxcel/internal/registry"
+	"github.com/vinodismyname/mcpxcel/internal/runtime"
+	"github.com/vinodismyname/mcpxcel/internal/security"
+	"github.com/vinodismyname/mcpxcel/internal/workbooks"
+	"github.com/vinodismyname/mcpxcel/pkg/version"
 )
 
 func main() {

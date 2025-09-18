@@ -55,7 +55,12 @@ test: ensure-go-mod
 	if [ -z "$$pkgs" ]; then \
 		echo "No Go packages detected; skipping go test."; \
 	else \
-		$(GO) test -cover $$pkgs; \
+		if $(GO) tool -n covdata >/dev/null 2>&1; then \
+			$(GO) test -cover $$pkgs; \
+		else \
+			echo "covdata tool not found; running tests without coverage"; \
+			$(GO) test $$pkgs; \
+		fi; \
 	fi
 
 test-race: ensure-go-mod

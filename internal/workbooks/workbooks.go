@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/vinoddu/mcpxcel/config"
+	"github.com/vinodismyname/mcpxcel/config"
 	"github.com/xuri/excelize/v2"
 )
 

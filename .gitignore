@@ -1,21 +1,29 @@
-# Build artifacts
+# Binaries
 server
-cmd/server/server
 *.exe
-*.out
-*.test
+*.dll
+*.so
+*.dylib
 
-# Excel workbooks (block by default)
+# Build directories
+bin/
+dist/
+
+# Go build cache and test outputs
+*.test
+*.out
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Excel files (except fixtures)
 *.xlsx
 *.xlsm
-*.xltx
-*.xltm
-
-# Allow sanitized fixtures only under testdata/
+*.xls
 !testdata/*.xlsx
 !testdata/*.xlsm
-!testdata/*.xltx
-!testdata/*.xltm
+!testdata/*.xls
 
-# OS files
-.DS_Store

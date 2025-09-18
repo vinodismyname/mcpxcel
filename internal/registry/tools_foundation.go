@@ -12,9 +12,9 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/vinoddu/mcpxcel/internal/runtime"
-	"github.com/vinoddu/mcpxcel/internal/workbooks"
-	"github.com/vinoddu/mcpxcel/pkg/pagination"
+	"github.com/vinodismyname/mcpxcel/internal/runtime"
+	"github.com/vinodismyname/mcpxcel/internal/workbooks"
+	"github.com/vinodismyname/mcpxcel/pkg/pagination"
 	"github.com/xuri/excelize/v2"
 )
 

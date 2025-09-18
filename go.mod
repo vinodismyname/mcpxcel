@@ -1,10 +1,9 @@
-module github.com/vinoddu/mcpxcel
+module github.com/vinodismyname/mcpxcel
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.25.0
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/mark3labs/mcp-go v0.39.1
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.11.1
@@ -18,7 +17,6 @@ require (
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.10.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect

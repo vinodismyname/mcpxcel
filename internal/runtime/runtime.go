@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/vinoddu/mcpxcel/config"
+	"github.com/vinodismyname/mcpxcel/config"
 	"golang.org/x/sync/semaphore"
 )
 
