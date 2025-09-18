@@ -22,7 +22,7 @@
 
 - CI workflows live under `.github/workflows/` (see `ci.yml`).
 - The `main` branch is protected; contributions land via PRs with passing CI.
-- Release tags (e.g., `v0.1.0`) are created on `main` and published as GitHub Releases.
+- Release tags (e.g., `v0.2.0`) are created on `main` and published as GitHub Releases.
 ```
 
 ## Module Organization
@@ -78,7 +78,8 @@ Model new folders on tool boundaries to keep handlers, caches, and policy module
 ## Releases
 
 - Use Semantic Versioning (`vX.Y.Z`).
-- After merging to `main`, tag a release (e.g., `v0.1.0`) and generate notes.
+- After merging to `main`, tag a release (e.g., `v0.2.0`) and generate notes.
+- Policy: bump the minor version for each completed task; reserve patch for hotfixes.
 - Ensure the `pkg/version` package reflects the release version when appropriate.
 
 ## Configuration Management
