@@ -48,6 +48,7 @@ type Cursor struct {
 	Q  string `json:"q,omitempty"`  // original query for search_data
 	Rg bool   `json:"rg,omitempty"` // regex flag for search_data
 	Cl []int  `json:"cl,omitempty"` // columns filter for search_data
+	P  string `json:"p,omitempty"`  // original predicate expression for filter_data
 }
 
 // EncodeCursor serializes and encodes the cursor as URL-safe base64 (without padding).

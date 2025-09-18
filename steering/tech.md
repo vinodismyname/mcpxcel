@@ -46,7 +46,8 @@ go test -race ./internal/...  # Race detection for concurrency
 - **MCP Protocol**: Server exposes tools via Model Context Protocol for AI assistant integration
 - **Concurrent Design**: Go goroutines for parallel request handling with per-workbook locking
 - **Bounded Operations**: All operations have configurable limits (10k cells, 128KB payloads, 200 rows)
-- **Stateless Design**: No persistent server-side sessions; workbook handles for efficiency
+- **Path-First API**: Tools accept `path` or `cursor`; no client-visible workbook IDs
+- **Stateless Design**: No persistent server-side sessions; internal handle cache keyed by canonical path for efficiency
 
 ## Configuration
 

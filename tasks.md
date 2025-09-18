@@ -119,10 +119,10 @@
       - Embed original search params (`q`, `rg`, `cl`) in cursor to enable deterministic cursor-only resume; continue validating `qh` for mismatches.
     - Add MCP client validation steps: truncated page returns `nextCursor`, resume works/mismatch invalidates, snapshots sized correctly.
     - _Requirements: 5.1, 5.2, 14.1, 14.2, 16.1_
-  - [ ] 9.3 Build filter_data tool with predicate engine
+  - [x] 9.3 Build filter_data tool with predicate engine
     - Implement filter expression parser (comparisons, logical operators) and evaluate rows via streaming iteration.
-    - Support configurable row limits and opaque pagination cursors (unit=rows) embedding `predicateHash` (`ph`); validate `wbv` and `ph` on resume and return `CURSOR_INVALID` when mismatched; align metadata with read_range.
-    - Mirror search_data: include predicate provenance in cursor (e.g., original predicate string and optional column scope) to allow cursor-only resume without explicit inputs, while still enforcing `ph` validation for mismatches.
+    - Support configurable row limits and opaque pagination cursors (unit=rows) embedding `predicateHash` (`ph`); align metadata with read_range.
+    - Mirror search_data: include predicate provenance in cursor (e.g., original predicate string and optional column scope) to allow cursor-only resume without explicit inputs.
     - Return validation errors for unsupported operators with corrective guidance.
     - _Requirements: 8.1, 8.2, 8.3, 8.4_
 
@@ -140,7 +140,7 @@
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
 
 - [ ] 11. Build MCP resource system for metadata and previews
-  - Register workbook metadata, preview snapshots, and configuration resources using stable URIs (e.g., `excel://workbooks/{id}/structure`).
+  - Register file metadata, preview snapshots, and configuration resources using stable URIs (e.g., `excel://files/{base64path}/structure`).
   - Implement resource handlers returning declared MIME types, size bounds, and honoring allow-list validation.
   - Surface effective configuration limits and server capabilities through `list_resources` and discovery metadata.
   - _Requirements: 2.4, 15.2, 16.2_
@@ -167,7 +167,7 @@
 - [ ] 13. Add telemetry, monitoring, and audit systems
   - Integrate logging middleware capturing session/tool/resource events with timing and error annotations.
   - Expose metrics for request latency, concurrency semaphore saturation, workbook cache hits, and LangChain durations.
-  - Emit audit logs for file access decisions (allowed/denied) and sensitive tool invocations with workbook IDs.
+  - Emit audit logs for file access decisions (allowed/denied) and sensitive tool invocations with file paths (or redacted canonical path).
   - _Requirements: 12.4, 13.4_
 
 - [ ] 14. Implement configuration management and deployment assets
@@ -203,3 +203,13 @@ For every task in this plan, follow the same branch/PR/release flow:
 - Merge with squash and delete branch: `gh pr merge --squash --delete-branch`.
 - Sync local `main`: `git checkout main && git pull`.
 - If release-worthy, tag and publish: `git tag vX.Y.Z -m "..." && git push origin vX.Y.Z && gh release create vX.Y.Z --generate-notes`.
+
+---
+
+- [ ] 9.4 Path-only API refactor (no workbook IDs)
+  - Replace client-visible `workbook_id` with `path` for all tools; `cursor` takes precedence when present.
+  - Bind cursors to file path (`pt`) and modification time (`mt`) for stateless resume.
+  - Update internal/workbooks to support `GetOrOpenByPath` and by-path caching with TTL.
+  - Remove open_workbook/close_workbook and update schemas/docs accordingly.
+  - Reference: .specify/specs/002-path-only-api.md
+  - _Requirements: 1 (path-only), 14.1 (cursor stability), 15, 16.1_

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -940,6 +941,240 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	}))
 	reg.Register(searchTool)
 
+	// filter_data
+	type FilterDataInput struct {
+		WorkbookID   string `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
+		Sheet        string `json:"sheet" jsonschema_description:"Sheet name"`
+		Predicate    string `json:"predicate" jsonschema_description:"Predicate expression using $N column refs and operators (=,!=,>,<,>=,<=, contains) with AND/OR/NOT and parentheses"`
+		Columns      []int  `json:"columns,omitempty" jsonschema_description:"Optional 1-based column indexes to include in cursor provenance"`
+		MaxRows      int    `json:"max_rows,omitempty" jsonschema_description:"Max rows to return per page (bounded)"`
+		SnapshotCols int    `json:"snapshot_cols,omitempty" jsonschema_description:"Max columns to include in row snapshot (bounded)"`
+		Cursor       string `json:"cursor,omitempty" jsonschema_description:"Opaque pagination cursor; takes precedence over sheet/predicate/max_rows"`
+	}
+
+	type FilteredRow struct {
+		Row      int      `json:"row"`
+		Snapshot []string `json:"snapshot"`
+	}
+
+	type FilterDataOutput struct {
+		WorkbookID string        `json:"workbook_id"`
+		Sheet      string        `json:"sheet"`
+		Predicate  string        `json:"predicate"`
+		Results    []FilteredRow `json:"results"`
+		Meta       PageMeta      `json:"meta"`
+	}
+
+	filterTool := mcp.NewTool(
+		"filter_data",
+		mcp.WithDescription("Filter rows by predicate ($N refs, comparison and boolean operators) with pagination"),
+		mcp.WithInputSchema[FilterDataInput](),
+		mcp.WithOutputSchema[FilterDataOutput](),
+	)
+
+	s.AddTool(filterTool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in FilterDataInput) (*mcp.CallToolResult, error) {
+		id := strings.TrimSpace(in.WorkbookID)
+		sheet := strings.TrimSpace(in.Sheet)
+		pred := strings.TrimSpace(in.Predicate)
+		curTok := strings.TrimSpace(in.Cursor)
+		if id == "" {
+			return mcp.NewToolResultError("VALIDATION: workbook_id is required"), nil
+		}
+		maxRows := in.MaxRows
+		if maxRows <= 0 || maxRows > 1000 {
+			maxRows = 200
+		}
+		snapshotCols := in.SnapshotCols
+		if snapshotCols <= 0 || snapshotCols > 256 {
+			snapshotCols = 16
+		}
+
+		// Cursor precedence and binding validation
+		var startOffset int
+		var parsedCur *pagination.Cursor
+		if curTok != "" {
+			pc, derr := pagination.DecodeCursor(curTok)
+			if derr != nil {
+				return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
+			}
+			if pc.Wid != id {
+				return mcp.NewToolResultError("CURSOR_INVALID: cursor workbook does not match provided workbook_id"), nil
+			}
+			if pc.U != pagination.UnitRows {
+				return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; filter_data expects rows"), nil
+			}
+			// When predicate/columns are provided alongside cursor, ensure they bind to same parameters
+			if pred != "" || len(in.Columns) > 0 {
+				ph := computePredicateHash(pred, in.Columns)
+				if pc.Ph != "" && pc.Ph != ph {
+					return mcp.NewToolResultError("CURSOR_INVALID: cursor parameters do not match current predicate/columns"), nil
+				}
+			}
+			sheet = pc.S
+			if pred == "" && pc.P != "" {
+				pred = pc.P
+			}
+			if len(in.Columns) == 0 && len(pc.Cl) > 0 {
+				in.Columns = pc.Cl
+			}
+			startOffset = pc.Off
+			if pc.Ps > 0 && pc.Ps < maxRows {
+				maxRows = pc.Ps
+			}
+			parsedCur = pc
+		} else {
+			if sheet == "" || pred == "" {
+				return mcp.NewToolResultError("VALIDATION: sheet and predicate are required (or supply cursor)"), nil
+			}
+		}
+
+		// Compile predicate to evaluator
+		eval, perr := compilePredicate(pred)
+		if perr != nil {
+			return mcp.NewToolResultError("VALIDATION: invalid predicate; examples: $1 = \"foo\", $3 > 100, $2 contains \"bar\", ($1 = \"x\" AND $4 >= 0.5) OR NOT $5 = \"y\""), nil
+		}
+
+		var output FilterDataOutput
+		output.WorkbookID = id
+		output.Sheet = sheet
+		output.Predicate = pred
+
+		err := mgr.WithRead(id, func(f *excelize.File, wbvNow int64) error {
+			if parsedCur != nil && parsedCur.Wbv > 0 && parsedCur.Wbv != wbvNow {
+				return errCursorWbvMismatch
+			}
+			// Resolve used range and snapshot bounds
+			sheetRange := ""
+			xLeft, xRight := 1, snapshotCols
+			yTop, yBot := 1, 0
+			if dim, derr := f.GetSheetDimension(sheet); derr == nil && dim != "" {
+				parts := strings.Split(dim, ":")
+				if len(parts) == 2 {
+					x1, y1, e1 := excelize.CellNameToCoordinates(parts[0])
+					x2, y2, e2 := excelize.CellNameToCoordinates(parts[1])
+					if e1 == nil && e2 == nil && x2 >= x1 && y2 >= y1 {
+						sheetRange = dim
+						xLeft = x1
+						xRight = x1 + snapshotCols - 1
+						if xRight > x2 {
+							xRight = x2
+						}
+						yTop, yBot = y1, y2
+					}
+				}
+			}
+
+			rowsIter, rerr := f.Rows(sheet)
+			if rerr != nil {
+				return rerr
+			}
+			defer rowsIter.Close()
+
+			total := 0
+			returned := 0
+			rowIdx := 0
+			results := make([]FilteredRow, 0, maxRows)
+
+			for rowsIter.Next() {
+				rowIdx++
+				if rowIdx < yTop {
+					continue
+				}
+				if yBot > 0 && rowIdx > yBot {
+					break
+				}
+				rowVals, cerr := rowsIter.Columns()
+				if cerr != nil {
+					return cerr
+				}
+				ok := eval(rowVals)
+				if ok {
+					total++
+					if total > startOffset && returned < maxRows {
+						// Build snapshot across [xLeft,xRight]
+						snap := make([]string, 0, xRight-xLeft+1)
+						for c := xLeft; c <= xRight; c++ {
+							absCol := c - 1
+							if absCol >= 0 && absCol < len(rowVals) {
+								snap = append(snap, rowVals[absCol])
+							} else {
+								snap = append(snap, "")
+							}
+						}
+						results = append(results, FilteredRow{Row: rowIdx, Snapshot: snap})
+						returned++
+					}
+				}
+			}
+
+			output.Results = results
+			output.Meta.Total = total
+			output.Meta.Returned = returned
+			output.Meta.Truncated = (startOffset + returned) < total
+			if output.Meta.Truncated {
+				ph := ""
+				if parsedCur != nil && parsedCur.Ph != "" {
+					ph = parsedCur.Ph
+				} else {
+					ph = computePredicateHash(pred, in.Columns)
+				}
+				next := pagination.Cursor{
+					V:   1,
+					Wid: id,
+					S:   sheet,
+					R:   sheetRange,
+					U:   pagination.UnitRows,
+					Off: pagination.NextOffset(startOffset, returned),
+					Ps:  maxRows,
+					Wbv: wbvNow,
+					Ph:  ph,
+					P:   pred,
+					Cl:  in.Columns,
+				}
+				token, encErr := pagination.EncodeCursor(next)
+				if encErr != nil {
+					return fmt.Errorf("CURSOR_BUILD_FAILED: %v", encErr)
+				}
+				output.Meta.NextCursor = token
+			}
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, workbooks.ErrHandleNotFound) {
+				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+			}
+			if errors.Is(err, errCursorWbvMismatch) {
+				return mcp.NewToolResultError("CURSOR_INVALID: workbook changed since cursor was issued; reopen workbook or restart pagination"), nil
+			}
+			low := strings.ToLower(err.Error())
+			if strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
+				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			}
+			if strings.HasPrefix(err.Error(), "CURSOR_BUILD_FAILED:") {
+				return mcp.NewToolResultError("CURSOR_BUILD_FAILED: failed to encode next page cursor; retry or narrow scope"), nil
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("FILTER_FAILED: %v", err)), nil
+		}
+
+		// Attach human-readable summary and JSON results (like search_data)
+		summary := fmt.Sprintf("matches=%d returned=%d truncated=%v", output.Meta.Total, output.Meta.Returned, output.Meta.Truncated)
+		if output.Meta.Truncated && output.Meta.NextCursor != "" {
+			summary = summary + " nextCursor=" + output.Meta.NextCursor
+		}
+		res := mcp.NewToolResultStructured(output, summary)
+		if b, jerr := json.Marshal(output.Results); jerr == nil {
+			var sb strings.Builder
+			sb.WriteString(summary)
+			sb.WriteByte('\n')
+			sb.Write(b)
+			res.Content = []mcp.Content{mcp.NewTextContent(sb.String())}
+		} else {
+			res.Content = []mcp.Content{mcp.NewTextContent(summary)}
+		}
+		return res, nil
+	}))
+	reg.Register(filterTool)
+
 	// write_range
 	type WriteRangeInput struct {
 		WorkbookID string     `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
@@ -1514,4 +1749,414 @@ func computeQueryHash(query string, regex bool, columns []int) string {
 	}
 	sum := sha1.Sum([]byte(b.String()))
 	return hex.EncodeToString(sum[:])
+}
+
+// computePredicateHash returns a deterministic hash binding predicate expression and column scope.
+func computePredicateHash(predicate string, columns []int) string {
+	// Normalize predicate by trimming redundant whitespace sequences to a single space
+	norm := strings.TrimSpace(predicate)
+	space := regexp.MustCompile(`\s+`)
+	norm = space.ReplaceAllString(norm, " ")
+	// Copy and sort columns for stable representation
+	cols := make([]int, 0, len(columns))
+	for _, c := range columns {
+		if c >= 1 {
+			cols = append(cols, c)
+		}
+	}
+	sort.Ints(cols)
+	var b strings.Builder
+	b.WriteString(norm)
+	b.WriteString("|")
+	for i, c := range cols {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(strconv.Itoa(c))
+	}
+	sum := sha1.Sum([]byte(b.String()))
+	return hex.EncodeToString(sum[:])
+}
+
+// Predicate parsing and evaluation
+// Grammar (subset):
+//   expr := orExpr
+//   orExpr := andExpr { OR andExpr }
+//   andExpr := unaryExpr { AND unaryExpr }
+//   unaryExpr := [NOT] primary
+//   primary := comparison | '(' expr ')'
+//   comparison := value ( = | != | > | < | >= | <= | CONTAINS ) value
+//   value := $N | number | string
+// Columns referenced with $N are 1-based absolute column indices.
+
+type tokenKind int
+
+const (
+	tkEOF tokenKind = iota
+	tkLParen
+	tkRParen
+	tkAnd
+	tkOr
+	tkNot
+	tkOp // comparison op or 'contains'
+	tkCol
+	tkString
+	tkNumber
+)
+
+type token struct {
+	kind tokenKind
+	val  string
+}
+
+// compilePredicate compiles a predicate string into an evaluator function.
+func compilePredicate(src string) (func([]string) bool, error) {
+	toks, err := tokenizePredicate(src)
+	if err != nil {
+		return nil, err
+	}
+	rpn, err := toRPN(toks)
+	if err != nil {
+		return nil, err
+	}
+	return func(row []string) bool {
+		ok, _ := evalRPN(rpn, row)
+		return ok
+	}, nil
+}
+
+func tokenizePredicate(s string) ([]token, error) {
+	var toks []token
+	i := 0
+	for i < len(s) {
+		ch := s[i]
+		// whitespace
+		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+			i++
+			continue
+		}
+		// parentheses
+		if ch == '(' {
+			toks = append(toks, token{kind: tkLParen, val: "("})
+			i++
+			continue
+		}
+		if ch == ')' {
+			toks = append(toks, token{kind: tkRParen, val: ")"})
+			i++
+			continue
+		}
+		// operators: >= <= != == = > <
+		if ch == '>' || ch == '<' || ch == '!' || ch == '=' {
+			if i+1 < len(s) {
+				pair := s[i : i+2]
+				switch pair {
+				case ">=", "<=", "!=", "==":
+					toks = append(toks, token{kind: tkOp, val: pair})
+					i += 2
+					continue
+				}
+			}
+			// single-char ops
+			toks = append(toks, token{kind: tkOp, val: string(ch)})
+			i++
+			continue
+		}
+		// column ref: $N
+		if ch == '$' {
+			j := i + 1
+			for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+				j++
+			}
+			if j == i+1 {
+				return nil, fmt.Errorf("invalid column reference at %d", i)
+			}
+			toks = append(toks, token{kind: tkCol, val: s[i:j]})
+			i = j
+			continue
+		}
+		// string literal '...' or "..."
+		if ch == '\'' || ch == '"' {
+			quote := ch
+			j := i + 1
+			var b strings.Builder
+			for j < len(s) {
+				if s[j] == '\\' && j+1 < len(s) {
+					b.WriteByte(s[j+1])
+					j += 2
+					continue
+				}
+				if s[j] == quote {
+					break
+				}
+				b.WriteByte(s[j])
+				j++
+			}
+			if j >= len(s) || s[j] != quote {
+				return nil, fmt.Errorf("unterminated string literal")
+			}
+			toks = append(toks, token{kind: tkString, val: b.String()})
+			i = j + 1
+			continue
+		}
+		// identifier: AND OR NOT CONTAINS (case-insensitive)
+		if isAlpha(ch) {
+			j := i + 1
+			for j < len(s) && (isAlphaNum(s[j]) || s[j] == '_') {
+				j++
+			}
+			word := strings.ToUpper(s[i:j])
+			switch word {
+			case "AND":
+				toks = append(toks, token{kind: tkAnd, val: word})
+			case "OR":
+				toks = append(toks, token{kind: tkOr, val: word})
+			case "NOT":
+				toks = append(toks, token{kind: tkNot, val: word})
+			case "CONTAINS":
+				toks = append(toks, token{kind: tkOp, val: "contains"})
+			default:
+				// number? fallthrough
+				// treat as bareword string value
+				toks = append(toks, token{kind: tkString, val: s[i:j]})
+			}
+			i = j
+			continue
+		}
+		// number literal (digits, optional dot, optional commas)
+		if (ch >= '0' && ch <= '9') || ch == '-' || ch == '+' {
+			j := i + 1
+			for j < len(s) {
+				c := s[j]
+				if (c >= '0' && c <= '9') || c == '.' || c == ',' {
+					j++
+					continue
+				}
+				break
+			}
+			toks = append(toks, token{kind: tkNumber, val: s[i:j]})
+			i = j
+			continue
+		}
+		return nil, fmt.Errorf("unexpected character %q at %d", ch, i)
+	}
+	return toks, nil
+}
+
+func isAlpha(b byte) bool    { return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') }
+func isAlphaNum(b byte) bool { return isAlpha(b) || (b >= '0' && b <= '9') }
+
+func precedence(t token) int {
+	switch t.kind {
+	case tkNot:
+		return 3
+	case tkOp:
+		return 2
+	case tkAnd:
+		return 1
+	case tkOr:
+		return 0
+	default:
+		return -1
+	}
+}
+
+func toRPN(toks []token) ([]token, error) {
+	var out []token
+	var ops []token
+	for i := 0; i < len(toks); i++ {
+		t := toks[i]
+		switch t.kind {
+		case tkCol, tkString, tkNumber:
+			out = append(out, t)
+		case tkNot, tkAnd, tkOr, tkOp:
+			for len(ops) > 0 {
+				top := ops[len(ops)-1]
+				if top.kind == tkLParen {
+					break
+				}
+				if precedence(top) >= precedence(t) {
+					out = append(out, top)
+					ops = ops[:len(ops)-1]
+					continue
+				}
+				break
+			}
+			ops = append(ops, t)
+		case tkLParen:
+			ops = append(ops, t)
+		case tkRParen:
+			found := false
+			for len(ops) > 0 {
+				top := ops[len(ops)-1]
+				ops = ops[:len(ops)-1]
+				if top.kind == tkLParen {
+					found = true
+					break
+				}
+				out = append(out, top)
+			}
+			if !found {
+				return nil, fmt.Errorf("mismatched parentheses")
+			}
+		default:
+			return nil, fmt.Errorf("unexpected token in expression")
+		}
+	}
+	for i := len(ops) - 1; i >= 0; i-- {
+		if ops[i].kind == tkLParen || ops[i].kind == tkRParen {
+			return nil, fmt.Errorf("mismatched parentheses")
+		}
+		out = append(out, ops[i])
+	}
+	return out, nil
+}
+
+// evalRPN evaluates the predicate in RPN form for a given row of cell strings.
+func evalRPN(rpn []token, row []string) (bool, error) {
+	// helper to fetch string for a token value
+	getString := func(t token) (string, error) {
+		switch t.kind {
+		case tkString:
+			return t.val, nil
+		case tkNumber:
+			return t.val, nil
+		case tkCol:
+			// t.val like "$12"
+			num := strings.TrimPrefix(t.val, "$")
+			idx, err := strconv.Atoi(num)
+			if err != nil || idx <= 0 {
+				return "", fmt.Errorf("invalid column index")
+			}
+			pos := idx - 1
+			if pos >= 0 && pos < len(row) {
+				return row[pos], nil
+			}
+			return "", nil
+		default:
+			return "", fmt.Errorf("unexpected token for value")
+		}
+	}
+
+	// helper parse number
+	parseNum := func(s string) (float64, bool) {
+		s = strings.ReplaceAll(s, ",", "")
+		if v, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil {
+			return v, true
+		}
+		return 0, false
+	}
+
+	var st []bool
+	for _, t := range rpn {
+		switch t.kind {
+		case tkString, tkNumber, tkCol:
+			// push placeholder on a temp value stack by encoding string onto a marker
+			// We'll encode as pushing a boolean marker onto st along with a special op in a parallel stack is overkill.
+			// Instead, treat operands by pushing onto an auxiliary stack of tokens.
+			// For simplicity: maintain a stack of tokens representing intermediate values.
+			// We'll implement a small inner stack here.
+			// Defer: we change approach below to use a value token stack.
+		}
+	}
+	// Re-implement using a token stack for values:
+	var valStack []token
+	for _, t := range rpn {
+		switch t.kind {
+		case tkString, tkNumber, tkCol:
+			valStack = append(valStack, t)
+		case tkNot:
+			if len(st) == 0 {
+				// Evaluate the next value token into boolean then apply not
+				if len(valStack) == 0 {
+					return false, fmt.Errorf("invalid NOT operand")
+				}
+				v := valStack[len(valStack)-1]
+				valStack = valStack[:len(valStack)-1]
+				// non-empty string or non-zero number considered truthy
+				vs, _ := getString(v)
+				b := false
+				if vs != "" {
+					b = true
+				}
+				st = append(st, !b)
+			} else {
+				b := st[len(st)-1]
+				st = st[:len(st)-1]
+				st = append(st, !b)
+			}
+		case tkAnd, tkOr:
+			// ensure two booleans on stack; if missing, try evaluate from valStack
+			for len(st) < 2 {
+				if len(valStack) == 0 {
+					return false, fmt.Errorf("invalid boolean operands")
+				}
+				v := valStack[len(valStack)-1]
+				valStack = valStack[:len(valStack)-1]
+				vs, _ := getString(v)
+				st = append(st, vs != "")
+			}
+			b2 := st[len(st)-1]
+			b1 := st[len(st)-2]
+			st = st[:len(st)-2]
+			if t.kind == tkAnd {
+				st = append(st, b1 && b2)
+			} else {
+				st = append(st, b1 || b2)
+			}
+		case tkOp:
+			// binary comparison: need two value tokens
+			if len(valStack) < 2 {
+				return false, fmt.Errorf("invalid comparison operands")
+			}
+			r := valStack[len(valStack)-1]
+			l := valStack[len(valStack)-2]
+			valStack = valStack[:len(valStack)-2]
+			ls, _ := getString(l)
+			rs, _ := getString(r)
+			var res bool
+			switch strings.ToLower(t.val) {
+			case "contains":
+				res = strings.Contains(strings.ToLower(ls), strings.ToLower(rs))
+			case ">", ">=", "<", "<=":
+				ln, lok := parseNum(ls)
+				rn, rok := parseNum(rs)
+				if lok && rok {
+					switch t.val {
+					case ">":
+						res = ln > rn
+					case ">=":
+						res = ln >= rn
+					case "<":
+						res = ln < rn
+					case "<=":
+						res = ln <= rn
+					}
+				} else {
+					res = false
+				}
+			case "=", "==":
+				res = ls == rs
+			case "!=":
+				res = ls != rs
+			default:
+				return false, fmt.Errorf("unsupported operator %q", t.val)
+			}
+			st = append(st, res)
+		default:
+			return false, fmt.Errorf("unexpected token during evaluation")
+		}
+	}
+	if len(st) != 1 {
+		// If booleans not consolidated, try reducing from remaining valStack
+		for len(st) > 1 {
+			b := st[len(st)-1]
+			st = st[:len(st)-1]
+			st[len(st)-1] = st[len(st)-1] && b
+		}
+		if len(st) != 1 {
+			return false, fmt.Errorf("invalid expression result")
+		}
+	}
+	return st[0], nil
 }
