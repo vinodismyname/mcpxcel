@@ -49,5 +49,8 @@ Do not push directly to `main`. Ensure all configuration and documentation chang
 - When all tasks currently listed in `tasks.md` are complete, bump the minor version.
 - Reserve additional patch versions for hotfixes unrelated to task completion.
 
+## Scope Note
+- Resource endpoints (`list_resources`, `read_resource`) are currently out of scope. Focus on tool catalog exposure (`list_tools`) and tool correctness.
+
 ## Security & Configuration Tips
 Respect directory allow-lists when accessing workbooks; never bypass via manual path joins. Keep operations bounded (≤10k cells, ≤128KB payload) and surface new limits through metadata. Document environment or config additions in `config/` and `design.md`. Use existing logging and middleware hooks instead of ad-hoc prints for telemetry or audits.
