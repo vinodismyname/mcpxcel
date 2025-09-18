@@ -906,6 +906,10 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 		// Human-friendly summary
 		summary := fmt.Sprintf("matches=%d returned=%d truncated=%v", output.Meta.Total, output.Meta.Returned, output.Meta.Truncated)
+		if output.Meta.Truncated && output.Meta.NextCursor != "" {
+			// Surface nextCursor in summary for clients that ignore structured meta
+			summary = summary + " nextCursor=" + output.Meta.NextCursor
+		}
 		res := mcp.NewToolResultStructured(output, summary)
 		// Attach a human-readable summary line followed by JSON results text
 		if b, jerr := json.Marshal(output.Results); jerr == nil {
