@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Onboarding & Required Reading
-Before doing anything, You MUST first read `steering/product.md`, `steering/structure.md`, `steering/tech.md`, `design.md`, `requirements.md`, `tasks.md`. Mark completed checklist items directly in `tasks.md` and create a Git commit immediately after each task is checked off. Use the MCP tools (`octodoc`, `ref`) to search and get task relavant documentation/references that will help you with the implementation before implementing changes.
+Before doing anything, You MUST first read `kiro/steering/product.md`, `kiro/steering/structure.md`, `kiro/steering/tech.md`, `kiro/design.md`, `kiro/requirements.md`, `kiro/tasks.md`. Mark completed checklist items directly in `kiro/tasks.md` and create a Git commit immediately after each task is checked off. Use the MCP tools (`octodoc`, `ref`) to search and get task relavant documentation/references that will help you with the implementation before implementing changes.
 
 ## Project Structure & Module Organization
 - `cmd/server`: MCP server entrypoint and CLI wiring.
@@ -34,7 +34,7 @@ Write imperative commit subjects with clear scope (e.g., `runtime: enforce workb
 For every task in `tasks.md`, follow this exact workflow:
 
 1. Create a branch from `main` using a descriptive prefix: `feat/`, `fix/`, `chore/`, `docs/`, or `refactor/`.
-2. Implement changes and update related docs (`steering/*`, `design.md`, `requirements.md`, `tasks.md`).
+2. Implement changes and update related docs (`kiro/steering/*`, `kiro/design.md`, `kiro/requirements.md`, `kiro/tasks.md`).
 3. Validate locally with `make lint && make test && make test-race`.
 4. Commit and push; open a PR to `main` via `gh pr create -B main -H <branch>`.
 5. Wait for green CI (`.github/workflows/ci.yml`); address any findings.
@@ -45,13 +45,13 @@ For every task in `tasks.md`, follow this exact workflow:
 Do not push directly to `main`. Ensure all configuration and documentation changes accompany code changes in the same PR when relevant.
 
 ## Agent Note: Versioning Policy
-- After completing each task in `tasks.md`, bump the patch version and publish a release.
+- After completing each task in `kiro/tasks.md`, bump the patch version and publish a release.
 - API model: path-only. Tools accept a canonical `path` (or `cursor`). Do not introduce `workbook_id` flows. Insights are domain-neutral and deterministic; no server-embedded LLM.
-- When all tasks currently listed in `tasks.md` are complete, bump the minor version.
+- When all tasks currently listed in `kiro/tasks.md` are complete, bump the minor version.
 - Reserve additional patch versions for hotfixes unrelated to task completion.
 
 ## Scope Note
 - Resource endpoints (`list_resources`, `read_resource`) are currently out of scope. Focus on tool catalog exposure (`list_tools`) and tool correctness.
 
 ## Security & Configuration Tips
-Respect directory allow-lists when accessing workbooks; never bypass via manual path joins. Keep operations bounded (≤10k cells, ≤128KB payload) and surface new limits through metadata. Document environment or config additions in `config/` and `design.md`. Use existing logging and middleware hooks instead of ad-hoc prints for telemetry or audits. Gate insights bounded compute via config; expose effective thresholds via tool metadata.
+Respect directory allow-lists when accessing workbooks; never bypass via manual path joins. Keep operations bounded (≤10k cells, ≤128KB payload) and surface new limits through metadata. Document environment or config additions in `config/` and `kiro/design.md`. Use existing logging and middleware hooks instead of ad-hoc prints for telemetry or audits. Gate insights bounded compute via config; expose effective thresholds via tool metadata.
