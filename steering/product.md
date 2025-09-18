@@ -23,3 +23,13 @@ A Model Context Protocol (MCP) server built in Go that enables AI assistants to 
 - Targeted search and filtering operations
 - Safe write operations with bounded payloads
 - Insight generation without raw data exposure
+
+## Repository & Releases
+
+- Repository: https://github.com/vinodismyname/mcpxcel (MIT License)
+- Default branch: `main`; protected with required PR + passing CI.
+- CI: GitHub Actions at `.github/workflows/ci.yml` running `make lint`, `make test`, and `make test-race` on pushes and PRs.
+- PR workflow: create a feature branch, open a PR to `main`, await green CI, squash-merge, and delete the branch.
+- Versioning: Semantic Versioning (vX.Y.Z). Tags are pushed and a GitHub Release is generated with notes.
+- Go module: `github.com/vinodismyname/mcpxcel` (ensure imports use this path).
+- Documentation updates and config changes must be included in PRs alongside code changes.

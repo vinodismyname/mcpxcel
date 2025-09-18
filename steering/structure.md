@@ -17,6 +17,12 @@
 │   ├── specs/          # Feature specifications
 │   └── steering/       # AI assistant guidance rules
 └── design.md           # Design documentation
+
+### GitHub & CI
+
+- CI workflows live under `.github/workflows/` (see `ci.yml`).
+- The `main` branch is protected; contributions land via PRs with passing CI.
+- Release tags (e.g., `v0.1.0`) are created on `main` and published as GitHub Releases.
 ```
 
 ## Module Organization
@@ -59,6 +65,21 @@ Model new folders on tool boundaries to keep handlers, caches, and policy module
 - **Registry**: Tool definitions and MCP protocol handling  
 - **Workbooks**: Excel file operations and data access
 - **Integration**: End-to-end testing across tool boundaries
+
+## Branching & PR Flow
+
+- Branch from `main` using prefixes: `feat/`, `fix/`, `chore/`, `docs/`, `refactor/`.
+- Keep commits focused; prefer squash-merge to maintain a clean history.
+- Each PR must:
+  - Pass CI (`make lint`, `make test`, `make test-race`).
+  - Update related docs and configuration where applicable.
+  - Include a concise, imperative subject and a validation summary.
+
+## Releases
+
+- Use Semantic Versioning (`vX.Y.Z`).
+- After merging to `main`, tag a release (e.g., `v0.1.0`) and generate notes.
+- Ensure the `pkg/version` package reflects the release version when appropriate.
 
 ## Configuration Management
 

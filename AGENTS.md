@@ -28,5 +28,20 @@ Author table-driven tests in `*_test.go` files and cover success, validation err
 ## Commit & Pull Request Guidelines
 Write imperative commit subjects with clear scope (e.g., `runtime: enforce workbook cap`). Summaries should mention requirements addressed and validation performed (`make lint`, `make test`, race runs if relevant). Pull requests must include description, linked issues/requirements, test evidence, and screenshots or logs for protocol or response changes. Flag configuration updates and request reviewers responsible for touched modules.
 
+## Per-Task GitHub Workflow (Agent Policy)
+
+For every task in `tasks.md`, follow this exact workflow:
+
+1. Create a branch from `main` using a descriptive prefix: `feat/`, `fix/`, `chore/`, `docs/`, or `refactor/`.
+2. Implement changes and update related docs (`steering/*`, `design.md`, `requirements.md`, `tasks.md`).
+3. Validate locally with `make lint && make test && make test-race`.
+4. Commit and push; open a PR to `main` via `gh pr create -B main -H <branch>`.
+5. Wait for green CI (`.github/workflows/ci.yml`); address any findings.
+6. Merge via `gh pr merge --squash --delete-branch` to keep history clean.
+7. Refresh local `main` with `git checkout main && git pull`.
+8. If appropriate, tag and publish a release: `git tag vX.Y.Z -m "..." && git push origin vX.Y.Z && gh release create vX.Y.Z --generate-notes`.
+
+Do not push directly to `main`. Ensure all configuration and documentation changes accompany code changes in the same PR when relevant.
+
 ## Security & Configuration Tips
 Respect directory allow-lists when accessing workbooks; never bypass via manual path joins. Keep operations bounded (≤10k cells, ≤128KB payload) and surface new limits through metadata. Document environment or config additions in `config/` and `design.md`. Use existing logging and middleware hooks instead of ad-hoc prints for telemetry or audits.
