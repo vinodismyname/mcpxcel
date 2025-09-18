@@ -17,17 +17,17 @@ import (
 // CompositionShiftInput computes share-of-total by group for two periods
 // and highlights mix shifts in percentage points.
 type CompositionShiftInput struct {
-	Path           string  `json:"path" jsonschema_description:"Canonical Excel file path (allowed directories enforced)"`
-	Sheet          string  `json:"sheet" jsonschema_description:"Sheet name"`
-	Range          string  `json:"range" jsonschema_description:"A1-style range or defined name covering header + data"`
-	DimIndex       int     `json:"dimension_index" jsonschema_description:"1-based column index within the range for the grouping dimension"`
-	MeasureIndex   int     `json:"measure_index" jsonschema_description:"1-based column index within the range for the numeric measure"`
-	TimeIndex      int     `json:"time_index,omitempty" jsonschema_description:"Optional 1-based column index within the range for the period/time column"`
-	PeriodBaseline string  `json:"period_baseline,omitempty" jsonschema_description:"Optional baseline period value; if omitted, detected as earlier of last two periods"`
-	PeriodCurrent  string  `json:"period_current,omitempty" jsonschema_description:"Optional current period value; if omitted, detected as latest of last two periods"`
-	TopN           int     `json:"top_n,omitempty" jsonschema_description:"Top-N groups to return explicitly; remaining combined into 'Other' (default 5)"`
-	MixThresholdPP float64 `json:"mix_threshold_pp,omitempty" jsonschema_description:"Highlight threshold in percentage points for mix shift (default 5)"`
-	MaxCells       int     `json:"max_cells,omitempty" jsonschema_description:"Max cells to process (bounded by global limits)"`
+    Path           string  `json:"path" validate:"required,filepath_ext" jsonschema_description:"Canonical Excel file path (allowed directories enforced)"`
+    Sheet          string  `json:"sheet" validate:"required" jsonschema_description:"Sheet name"`
+    Range          string  `json:"range" validate:"required,a1orname" jsonschema_description:"A1-style range or defined name covering header + data"`
+    DimIndex       int     `json:"dimension_index" validate:"min=1" jsonschema_description:"1-based column index within the range for the grouping dimension"`
+    MeasureIndex   int     `json:"measure_index" validate:"min=1" jsonschema_description:"1-based column index within the range for the numeric measure"`
+    TimeIndex      int     `json:"time_index,omitempty" validate:"omitempty,min=1" jsonschema_description:"Optional 1-based column index within the range for the period/time column"`
+    PeriodBaseline string  `json:"period_baseline,omitempty" jsonschema_description:"Optional baseline period value; if omitted, detected as earlier of last two periods"`
+    PeriodCurrent  string  `json:"period_current,omitempty" jsonschema_description:"Optional current period value; if omitted, detected as latest of last two periods"`
+    TopN           int     `json:"top_n,omitempty" validate:"omitempty,min=1,max=10" jsonschema_description:"Top-N groups to return explicitly; remaining combined into 'Other' (default 5)"`
+    MixThresholdPP float64 `json:"mix_threshold_pp,omitempty" validate:"omitempty,gt=0" jsonschema_description:"Highlight threshold in percentage points for mix shift (default 5)"`
+    MaxCells       int     `json:"max_cells,omitempty" validate:"omitempty,min=1" jsonschema_description:"Max cells to process (bounded by global limits)"`
 }
 
 type GroupMix struct {

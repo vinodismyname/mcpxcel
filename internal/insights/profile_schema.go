@@ -17,10 +17,10 @@ import (
 
 // ProfileSchemaInput specifies the sheet/range to profile and sampling bounds.
 type ProfileSchemaInput struct {
-	Path          string `json:"path" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
-	Sheet         string `json:"sheet" jsonschema_description:"Sheet name to analyze"`
-	Range         string `json:"range" jsonschema_description:"A1-style range or defined name for the table region"`
-	MaxSampleRows int    `json:"max_sample_rows,omitempty" jsonschema_description:"Max non-header rows to sample per column (default 100)"`
+    Path          string `json:"path" validate:"required,filepath_ext" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
+    Sheet         string `json:"sheet" validate:"required" jsonschema_description:"Sheet name to analyze"`
+    Range         string `json:"range" validate:"required,a1orname" jsonschema_description:"A1-style range or defined name for the table region"`
+    MaxSampleRows int    `json:"max_sample_rows,omitempty" validate:"omitempty,min=1,max=100" jsonschema_description:"Max non-header rows to sample per column (default 100)"`
 }
 
 // ColumnProfile summarizes inferred role, type, and quality for one column.

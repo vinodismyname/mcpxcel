@@ -20,6 +20,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/vinodismyname/mcpxcel/internal/runtime"
 	"github.com/vinodismyname/mcpxcel/internal/workbooks"
+	"github.com/vinodismyname/mcpxcel/pkg/validation"
 	"github.com/vinodismyname/mcpxcel/pkg/mcperr"
 	"github.com/vinodismyname/mcpxcel/pkg/pagination"
 	"github.com/xuri/excelize/v2"
@@ -94,14 +95,14 @@ type ReadRangeOutput struct {
 
 // SearchDataInput defines parameters for searching values/patterns.
 type SearchDataInput struct {
-	Path         string `json:"path" jsonschema_description:"Canonical absolute workbook path (allow‑list enforced)"`
-	Sheet        string `json:"sheet" jsonschema_description:"Target sheet name (case‑insensitive)"`
-	Query        string `json:"query" jsonschema_description:"Literal substring or pattern to find; set regex=true to treat as RE2 regex"`
-	Regex        bool   `json:"regex,omitempty" jsonschema_description:"If true, interpret query as Go RE2 regular expression; otherwise use literal substring match"`
-	Columns      []int  `json:"columns,omitempty" jsonschema_description:"Optional 1‑based column indexes to restrict search scope"`
-	MaxResults   int    `json:"max_results,omitempty" jsonschema_description:"Max results per page (unit=rows); bounded by server limits"`
-	SnapshotCols int    `json:"snapshot_cols,omitempty" jsonschema_description:"Max columns to include in each row snapshot; anchored to leftmost used column (bounded)"`
-	Cursor       string `json:"cursor,omitempty" jsonschema_description:"Opaque URL‑safe base64 cursor (unit=rows) bound to path+mtime and query hash; takes precedence for resume"`
+    Path         string `json:"path" validate:"required,filepath_ext" jsonschema_description:"Canonical absolute workbook path (allow‑list enforced)"`
+    Sheet        string `json:"sheet" validate:"required_without=Cursor" jsonschema_description:"Target sheet name (case‑insensitive)"`
+    Query        string `json:"query" validate:"required_without=Cursor,valid_regex" jsonschema_description:"Literal substring or pattern to find; set regex=true to treat as RE2 regex"`
+    Regex        bool   `json:"regex,omitempty" jsonschema_description:"If true, interpret query as Go RE2 regular expression; otherwise use literal substring match"`
+    Columns      []int  `json:"columns,omitempty" validate:"dive,min=1" jsonschema_description:"Optional 1‑based column indexes to restrict search scope"`
+    MaxResults   int    `json:"max_results,omitempty" validate:"omitempty,min=1,max=1000" jsonschema_description:"Max results per page (unit=rows); bounded by server limits"`
+    SnapshotCols int    `json:"snapshot_cols,omitempty" validate:"omitempty,min=1,max=256" jsonschema_description:"Max columns to include in each row snapshot; anchored to leftmost used column (bounded)"`
+    Cursor       string `json:"cursor,omitempty" validate:"omitempty,cursor" jsonschema_description:"Opaque URL‑safe base64 cursor (unit=rows) bound to path+mtime and query hash; takes precedence for resume"`
 }
 
 // SearchMatch captures a single search hit with bounded row snapshot.
@@ -649,12 +650,15 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		mcp.WithInputSchema[SearchDataInput](),
 		mcp.WithOutputSchema[SearchDataOutput](),
 	)
-	s.AddTool(searchTool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in SearchDataInput) (*mcp.CallToolResult, error) {
-		p := strings.TrimSpace(in.Path)
-		sheet := strings.TrimSpace(in.Sheet)
-		query := strings.TrimSpace(in.Query)
-		curTok := strings.TrimSpace(in.Cursor)
-		regex := in.Regex
+    s.AddTool(searchTool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in SearchDataInput) (*mcp.CallToolResult, error) {
+        if msg := validation.ValidateStruct(in); msg != "" {
+            return mcperr.FromText(msg), nil
+        }
+        p := strings.TrimSpace(in.Path)
+        sheet := strings.TrimSpace(in.Sheet)
+        query := strings.TrimSpace(in.Query)
+        curTok := strings.TrimSpace(in.Cursor)
+        regex := in.Regex
 		if p == "" {
 			return mcperr.FromText("VALIDATION: path is required"), nil
 		}
@@ -883,15 +887,15 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	reg.Register(searchTool)
 
 	// filter_data
-	type FilterDataInput struct {
-		Path         string `json:"path" jsonschema_description:"Canonical absolute workbook path (allow‑list enforced)"`
-		Sheet        string `json:"sheet" jsonschema_description:"Target sheet name (case‑insensitive)"`
-		Predicate    string `json:"predicate" jsonschema_description:"Boolean predicate using $N (1‑based) column refs with operators (=, !=, >, <, >=, <=, contains) and AND/OR/NOT; parentheses supported"`
-		Columns      []int  `json:"columns,omitempty" jsonschema_description:"Optional 1‑based column indexes echoed into the cursor provenance for deterministic resume"`
-		MaxRows      int    `json:"max_rows,omitempty" jsonschema_description:"Max rows per page (unit=rows); bounded by server limits"`
-		SnapshotCols int    `json:"snapshot_cols,omitempty" jsonschema_description:"Max columns to include in each row snapshot; anchored to leftmost used column (bounded)"`
-		Cursor       string `json:"cursor,omitempty" jsonschema_description:"Opaque URL‑safe base64 cursor (unit=rows) bound to path+mtime and predicate hash; takes precedence for resume"`
-	}
+    type FilterDataInput struct {
+        Path         string `json:"path" validate:"required,filepath_ext" jsonschema_description:"Canonical absolute workbook path (allow‑list enforced)"`
+        Sheet        string `json:"sheet" validate:"required_without=Cursor" jsonschema_description:"Target sheet name (case‑insensitive)"`
+        Predicate    string `json:"predicate" validate:"required_without=Cursor" jsonschema_description:"Boolean predicate using $N (1‑based) column refs with operators (=, !=, >, <, >=, <=, contains) and AND/OR/NOT; parentheses supported"`
+        Columns      []int  `json:"columns,omitempty" validate:"dive,min=1" jsonschema_description:"Optional 1‑based column indexes echoed into the cursor provenance for deterministic resume"`
+        MaxRows      int    `json:"max_rows,omitempty" validate:"omitempty,min=1,max=1000" jsonschema_description:"Max rows per page (unit=rows); bounded by server limits"`
+        SnapshotCols int    `json:"snapshot_cols,omitempty" validate:"omitempty,min=1,max=256" jsonschema_description:"Max columns to include in each row snapshot; anchored to leftmost used column (bounded)"`
+        Cursor       string `json:"cursor,omitempty" validate:"omitempty,cursor" jsonschema_description:"Opaque URL‑safe base64 cursor (unit=rows) bound to path+mtime and predicate hash; takes precedence for resume"`
+    }
 
 	type FilteredRow struct {
 		Row      int      `json:"row"`
@@ -913,11 +917,14 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		mcp.WithOutputSchema[FilterDataOutput](),
 	)
 
-	s.AddTool(filterTool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in FilterDataInput) (*mcp.CallToolResult, error) {
-		p := strings.TrimSpace(in.Path)
-		sheet := strings.TrimSpace(in.Sheet)
-		pred := strings.TrimSpace(in.Predicate)
-		curTok := strings.TrimSpace(in.Cursor)
+    s.AddTool(filterTool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in FilterDataInput) (*mcp.CallToolResult, error) {
+        if msg := validation.ValidateStruct(in); msg != "" {
+            return mcperr.FromText(msg), nil
+        }
+        p := strings.TrimSpace(in.Path)
+        sheet := strings.TrimSpace(in.Sheet)
+        pred := strings.TrimSpace(in.Predicate)
+        curTok := strings.TrimSpace(in.Cursor)
 		if p == "" {
 			return mcperr.FromText("VALIDATION: path is required"), nil
 		}
@@ -1314,14 +1321,14 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	_ = fmt.Sprintf("foundation tools registered: %d", 8)
 
 	// compute_statistics
-	type ComputeStatisticsInput struct {
-		Path          string `json:"path" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
-		Sheet         string `json:"sheet" jsonschema_description:"Sheet name"`
-		RangeA1       string `json:"range" jsonschema_description:"A1-style range or defined name to analyze"`
-		ColumnIndices []int  `json:"columns,omitempty" jsonschema_description:"1-based column indexes within the range; omitted means all"`
-		GroupByIndex  int    `json:"group_by_index,omitempty" jsonschema_description:"Optional 1-based column index within the range to group by"`
-		MaxCells      int    `json:"max_cells,omitempty" jsonschema_description:"Max cells to process (bounded)"`
-	}
+    type ComputeStatisticsInput struct {
+        Path          string `json:"path" validate:"required,filepath_ext" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
+        Sheet         string `json:"sheet" validate:"required" jsonschema_description:"Sheet name"`
+        RangeA1       string `json:"range" validate:"required,a1orname" jsonschema_description:"A1-style range or defined name to analyze"`
+        ColumnIndices []int  `json:"columns,omitempty" validate:"dive,min=1" jsonschema_description:"1-based column indexes within the range; omitted means all"`
+        GroupByIndex  int    `json:"group_by_index,omitempty" validate:"omitempty,min=1" jsonschema_description:"Optional 1-based column index within the range to group by"`
+        MaxCells      int    `json:"max_cells,omitempty" validate:"omitempty,min=1" jsonschema_description:"Max cells to process (bounded)"`
+    }
 
 	type ColumnStats struct {
 		Count         int     `json:"count"`
@@ -1389,13 +1396,16 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		}
 	}
 
-	s.AddTool(computeStats, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ComputeStatisticsInput) (*mcp.CallToolResult, error) {
-		p := strings.TrimSpace(in.Path)
-		sheet := strings.TrimSpace(in.Sheet)
-		rng := strings.TrimSpace(in.RangeA1)
-		if p == "" || sheet == "" || rng == "" {
-			return mcperr.FromText("VALIDATION: path, sheet, and range are required"), nil
-		}
+    s.AddTool(computeStats, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ComputeStatisticsInput) (*mcp.CallToolResult, error) {
+        if msg := validation.ValidateStruct(in); msg != "" {
+            return mcperr.FromText(msg), nil
+        }
+        p := strings.TrimSpace(in.Path)
+        sheet := strings.TrimSpace(in.Sheet)
+        rng := strings.TrimSpace(in.RangeA1)
+        if p == "" || sheet == "" || rng == "" {
+            return mcperr.FromText("VALIDATION: path, sheet, and range are required"), nil
+        }
 		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
 		if openErr != nil {
 			return mcperr.FromText(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil

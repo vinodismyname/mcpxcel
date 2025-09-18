@@ -156,7 +156,7 @@
     - Define canonical MCP error codes/messages aligned with requirements (e.g., `FILE_TOO_LARGE`, `BUSY_RESOURCE`, `CORRUPT_WORKBOOK`).
     - Provide helper to wrap internal errors into `mcp.NewToolResultError` including actionable `nextSteps` and retry hints.
     - _Requirements: 14.2, 14.5, 16.1_
-  - [ ] 12.2 Implement input validation and JSON schema enforcement
+  - [x] 12.2 Implement input validation and JSON schema enforcement
     - Use struct validation tags and custom validators (filepath, range) in typed handlers to reject invalid inputs before execution.
     - Keep JSON schemas in sync with validators and surface validation errors with correction examples.
     - _Requirements: 14.4, 16.1_
@@ -170,15 +170,6 @@
     - _Requirements: 14.1, 14.3_
 
  
-
-- [ ] 14. Implement configuration management
-  - Load hierarchical configuration (YAML + env + CLI) with validation, default limit documentation, and effective-value exposure.
-  - Provide sample config files and documentation for tuning payload, concurrency, and directory guardrails.
-  - Document environment variable `MCPXCEL_ALLOWED_DIRS` (path list) in config docs and reference in design.md.
-  - _Requirements: 15.1, 15.2, 15.3_
-
- 
-
  
 
 ## Per-Task GitHub Workflow
@@ -227,26 +218,3 @@ For every task in this plan, follow the same branch/PR/release flow:
     - INVALID_SHEET mapping:
       - Simulate invalid sheet errors for `preview_sheet` and `read_range` and assert error code `INVALID_SHEET` for both "doesn't exist" and "does not exist" message variants (can stub/force messages or use an excelize call that produces each message on different platforms).
     - Meta summary presence:
-      - For `preview_sheet` and `read_range`, assert that the first text content item includes the summary line; verify `meta` in structured payload matches the summary values.
-  - Manual verification (MCP client):
-    - Read tools: Force truncation and confirm the summary line appears in text output and `meta.nextCursor` is present; decode cursor to verify `pt` and `mt` non-zero.
-    - Cursor path-binding: Copy the workbook to a new path, obtain a `nextCursor` on the original path, then call the same tool with `{ path: COPY_PATH, cursor: <oldCursor> }` and assert `CURSOR_INVALID` (path mismatch).
-  - Validation: `make lint && make test && make test-race`.
-  - _Requirements: 14.1 (cursor stability), 14.2 (error catalog), 16.1 (schemas/behavior documentation)_
-
-- [x] 11. Tool description overhaul (LLM-friendly)
-  - Elevate all tool descriptions and parameter help to be explicit and comprehensive per MCP/LLM best practices. Include what the tool does, when to use it (and when not), detailed parameter semantics (cursor precedence and units, indexing conventions, predicate grammar, regex behavior, encoding, and snapshot bounds), outputs and pagination metadata, limits/caps, error mappings, and security caveats.
-  - Reference plan: MUST READ plans/011-tool_description_overhaul.md
-  - Tools in scope (registry):
-    - Foundation: `list_structure`, `preview_sheet`, `read_range`, `search_data`, `filter_data`.
-    - Insights: `sequential_insights`, `detect_tables`, `profile_schema`, `composition_shift`, `concentration_metrics`, `funnel_analysis`.
-  - Acceptance:
-    - [ ] Each tool description is ≥4 sentences covering purpose, usage, params/precedence, outputs/meta, limits, caveats.
-    - [ ] Sequential insights description follows sequential thinking style (planning‑only by default; no server LLM).
-    - [ ] Parameter descriptions document units, 1‑based indexing, predicate grammar, regex behavior, encoding, snapshot bounds.
-    - [ ] `list_tools` renders updated long‑form descriptions and enriched parameter help; no schema regressions.
-    - [ ] `make lint && make test && make test-race` pass.
-  - Implementation notes:
-    - Update `internal/registry/tools_foundation.go` and `internal/registry/insights.go` descriptions and `mcp.Description(...)` parameter help.
-    - Do not change tool behavior; docs/metadata only. Keep error messages stable.
-    - Validate by running the server and inspecting `list_tools` output.
