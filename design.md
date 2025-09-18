@@ -350,7 +350,7 @@ sequenceDiagram
 1. **Unit Tests** – Cover tool handlers with table-driven tests for validation, concurrency, and error mapping. Mock Excelize interfaces for edge cases.
 2. **Concurrency Tests** – Simulate simultaneous reads/writes using Go race detector and wait groups to assert locking behaviour (Requirement 12).
 3. **Streaming Tests** – Use large fixture files to ensure iterators keep memory usage below thresholds and pagination cursors remain stable (Requirement 3, 14.1).
-4. **Insights Tests** – Validate planner recommendations and primitive correctness; verify truncation and safety caps.
+4. **Insights Tests** – Implemented: planner recommendations, multi-table detection, role inference and data quality, composition/mix shift (Top‑N + Other), concentration (Top‑N share + HHI), and funnel conversions. Tests use tiny generated `.xlsx` fixtures and assert truncation and caps metadata.
 5. **Protocol Tests** – Exercise `list_tools` and error payloads using the MCP client harness.
 
 ## Performance & Scaling

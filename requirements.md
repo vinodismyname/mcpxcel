@@ -107,6 +107,16 @@ The MCP Excel Analysis Server is a Model Context Protocol (MCP) compliant servic
 4. WHEN limits are exceeded or ambiguity remains THEN the system SHALL degrade to planning-only responses with explicit `questions` and actionable `recommended_tools` to proceed safely.
 5. WHEN responses are returned THEN the system SHALL include metadata describing caps (e.g., group limits, truncation), cursor behavior, and effective configuration relevant to the insight operation.
 
+#### Verification
+
+- Covered by unit tests under `internal/insights/*_test.go`:
+  - Planner recommendations and clarifying questions
+  - Table detection candidates and header confidence
+  - Schema profiling role inference and quality warnings
+  - Composition/mix shift Top‑N and ±pp calculations
+  - Concentration metrics (Top‑N share and HHI banding)
+  - Funnel stage detection and conversion rates
+
 ### Requirement 10
 
 **User Story:** As an AI assistant, I want the system to handle file size and format limitations gracefully, so that I can work with supported files and receive clear guidance for unsupported ones.

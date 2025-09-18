@@ -25,6 +25,10 @@ A Model Context Protocol (MCP) server built in Go that enables AI assistants to 
 - Sequential Insights planning with domain-neutral primitives (no server LLM)
 - Multiple-table detection within a sheet and schema profiling
 
+## Quality & Verification
+
+- Unit tests cover sequential insights planner, table detection, schema profiling, and bounded primitives (composition/mix shift, concentration/HHI, funnel conversion). See internal/insights/*_test.go.
+
 ## Repository & Releases
 
 - Repository: https://github.com/vinodismyname/mcpxcel (MIT License)

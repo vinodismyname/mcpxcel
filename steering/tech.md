@@ -65,3 +65,13 @@ go test -race ./internal/...  # Race detection for concurrency
   - Open PR: `gh pr create -B main -H <branch> -t "..." -b "..."`
   - Merge PR: `gh pr merge --squash --delete-branch`
   - Tag release and create notes: `git tag vX.Y.Z -m "..." && gh release create vX.Y.Z --generate-notes`
+
+## Insights Test Coverage
+
+- internal/insights has unit tests for:
+  - sequential_insights planner (recommendations, clarifying questions)
+  - detect_tables (multi-table detection heuristics)
+  - profile_schema (role inference and data quality checks)
+  - composition_shift (Top‑N + Other, ±pp mix changes)
+  - concentration_metrics (Top‑N share and HHI banding)
+  - funnel_analysis (stage detection and conversions)

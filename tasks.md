@@ -145,7 +145,7 @@
     - Change over time & variance to baseline/target; driver ranking (Top ± movers), Top-N + "Other" capping.
     - Composition/mix shift (±5pp threshold), concentration metrics (Top-N share, HHI bands), robust outliers (modified z-score |z|≥3.5, ≤5 reported).
     - Funnel analysis: stage detection from column names/hints, stage conversion and bottleneck detection; segment overlays optional.
-  - [ ] 10.5 Tests and documentation
+  - [x] 10.5 Tests and documentation
     - Planner test matrix, table detection and role inference tests on fixtures, primitive correctness on small XLSX.
     - Update steering/product.md, steering/tech.md, steering/structure.md, design.md, requirements.md (Req. 9), and AGENTS.md.
   - [ ] 10.6 Config flags and safety
