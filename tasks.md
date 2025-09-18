@@ -110,6 +110,14 @@
     - Provide opaque pagination cursors (unit=rows) embedding `queryHash` (`qh`); include total match counts and bounded context rows per hit; validate `wbv` and `qh` on resume and return `CURSOR_INVALID` when mismatched.
     - Emit empty result payloads with zero totals when no matches are found.
     - _Requirements: 5.1, 5.2, 5.3, 5.4_
+  - [ ] 9.2.1 Correct search_data pagination, visibility, and errors
+    - Implement corrections per `steering/search_data_corrections.md`:
+      - Set cursor `r` to sheet used range; preserve `qh` when resuming; map encode failures to `CURSOR_BUILD_FAILED`.
+      - Map excelize "does not exist"/"doesn't exist" to `INVALID_SHEET`.
+      - Attach results as JSON text content so clients render hits alongside metadata.
+      - Anchor snapshots to left bound of used range; cap by `snapshot_cols` and actual columns.
+    - Add MCP client validation steps: truncated page returns `nextCursor`, resume works/mismatch invalidates, snapshots sized correctly.
+    - _Requirements: 5.1, 5.2, 14.1, 14.2, 16.1_
   - [ ] 9.3 Build filter_data tool with predicate engine
     - Implement filter expression parser (comparisons, logical operators) and evaluate rows via streaming iteration.
     - Support configurable row limits and opaque pagination cursors (unit=rows) embedding `predicateHash` (`ph`); validate `wbv` and `ph` on resume and return `CURSOR_INVALID` when mismatched; align metadata with read_range.
