@@ -135,7 +135,7 @@
     - Output: `current_step`, `recommended_tools[{tool_name, confidence, rationale, priority, suggested_inputs, alternatives}]`, `questions[]`, `insight_cards[]`, `meta`.
     - Cursor precedence over path; include limits and truncation metadata.
     - Default planning-only mode; configurable bounded compute.
-  - [ ] 10.2 Implement table detection (multiple tables per sheet)
+  - [x] 10.2 Implement table detection (multiple tables per sheet)
     - Detect rectangular data blocks via streaming scan, header heuristics, and blank-row/column separators; return Top-K candidates with confidence and previews.
     - Ask clarifying question when multiple plausible tables exist; proceed per chosen range.
   - [ ] 10.3 Add schema profiling & role inference

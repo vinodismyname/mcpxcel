@@ -109,7 +109,7 @@ type RuntimeController struct {
 | `compute_statistics` | 4 | Calculates stats up to configured cell limits, streaming columns. |
 | `search_data` | 5 | Utilizes `SearchSheet` with optional column filters.[^excelize-rows] |
 | `sequential_insights` | 9,14 | Planning tool returning questions, recommended tool calls, and insight cards; can run bounded primitives. |
-| `detect_tables` | 2 | Detects multiple table regions (ranges) within a sheet; returns Top-K candidates. |
+| `detect_tables` | 2 | Detects multiple table regions (ranges) within a sheet; returns Top‑K candidates. Supports `header_sample_rows` and `header_sample_cols` (default 2 x 12, max 5 x 32) to include a compact header sample from each candidate. |
 | `profile_schema` | 4 | Role inference (measure/dimension/time/id/target) + data quality checks. |
 | `composition_shift` | 4 | Quantifies share changes and net effect on KPI (±5pp threshold). |
 | `concentration_metrics` | 4 | Computes Top-N share and HHI bands. |
@@ -175,6 +175,7 @@ Pagination cursors capture sheet name, offset, and timestamp to provide stable i
 The insights engine provides a planning loop and bounded, deterministic primitives:
 
 - Planning: takes objective + context; returns questions, recommended tool calls with confidence/rationale, and insight cards.
+- Table Detection: streaming scan of non-empty blocks; identifies rectangular regions separated by blank rows/columns; ranks candidates by header uniqueness/text-likeness and region size; returns Top‑K candidates with header preview and confidence.
 - Primitives: change over time, variance to baseline/target, driver ranking (Top ± movers), composition shift, concentration (Top-N share, HHI bands), robust outliers (modified z-score), funnel analysis, and data quality checks.
 - Safety: streaming algorithms, Top-N capping with "Other", conservative thresholds, explicit assumptions, and truncation metadata.
 
