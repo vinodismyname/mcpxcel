@@ -4,7 +4,7 @@ Go-based MCP server for targeted Excel analysis using Excelize and mcp-go.
 
 ## Releases
 - Latest: v0.2.0 — https://github.com/vinodismyname/mcpxcel/releases/tag/v0.2.0
-- Policy: bump the minor version for each completed task; reserve patch bumps for hotfixes.
+- Policy: bump the patch version for each completed task; when all existing tasks in `tasks.md` are complete, bump the minor version. Reserve additional patch bumps for hotfixes.
 
 ## Requirements
 - Go 1.25.0+
