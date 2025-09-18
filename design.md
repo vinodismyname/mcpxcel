@@ -270,6 +270,9 @@ sequenceDiagram
     "q":  "<query>",       // original query string
     "rg": true,             // regex flag
     "cl": [1,6]             // optional column filter (1-based)
+    // filter_data provenance (for deterministic cursor-only resume)
+    "p":  "<predicate>",   // original predicate expression
+    "cl": [2,4]             // optional column scope (1-based)
   }
 
 - Fields are intentionally short to minimize payload overhead. The token is treated as opaque by clients.
@@ -297,7 +300,9 @@ sequenceDiagram
     - startCol = x1 + off % cols
   - Iterate row-major from (startCol,startRow), honoring page size (`ps`) and global caps.
 - preview_sheet (u=rows): resume at `y = header_row + 1 + off` and continue for `ps` rows.
-- search/filter: resume from result index `off`, recomputing matches deterministically for the same query/predicate hash. For search_data, cursors embed the original query parameters (`q`, `rg`, `cl`) so cursor-only resumes (without passing inputs) use the exact same parameters. Handlers still validate `qh` to reject mismatches when inputs are supplied alongside a cursor.
+- search/filter: resume from result index `off`, recomputing matches deterministically for the same query/predicate hash.
+  - search_data: cursors embed the original query parameters (`q`, `rg`, `cl`) so cursor-only resumes (without passing inputs) use the exact same parameters. Handlers still validate `qh` to reject mismatches when inputs are supplied alongside a cursor.
+  - filter_data: cursors SHOULD embed the original predicate expression and optional column scope (e.g., `p`, `cl`) so cursor-only resumes reuse identical parameters. Handlers MUST validate `ph` to reject mismatches when inputs are supplied alongside a cursor.
 
 ### Backward Compatibility
 
