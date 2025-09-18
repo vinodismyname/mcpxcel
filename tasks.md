@@ -105,14 +105,24 @@
     - Add group-by aggregation using map reducers with memory budgeting and fallback to suggestions when limits exceed.
     - Surface structured result schema with units, precision, and resource usage hints for follow-on calls.
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
-  - [ ] 9.2 Implement search_data tool with pattern matching
+  - [x] 9.2 Implement search_data tool with pattern matching
     - Use Excelize `SearchSheet` for literal/regex searches with column filters, batching results to respect match caps.
     - Provide opaque pagination cursors (unit=rows) embedding `queryHash` (`qh`); include total match counts and bounded context rows per hit; validate `wbv` and `qh` on resume and return `CURSOR_INVALID` when mismatched.
     - Emit empty result payloads with zero totals when no matches are found.
     - _Requirements: 5.1, 5.2, 5.3, 5.4_
+  - [x] 9.2.1 Correct search_data pagination, visibility, and errors
+    - Implement corrections per `steering/search_data_corrections.md`:
+      - Set cursor `r` to sheet used range; preserve `qh` when resuming; map encode failures to `CURSOR_BUILD_FAILED`.
+      - Map excelize "does not exist"/"doesn't exist" to `INVALID_SHEET`.
+      - Attach results as JSON text content so clients render hits alongside metadata.
+      - Anchor snapshots to left bound of used range; cap by `snapshot_cols` and actual columns.
+      - Embed original search params (`q`, `rg`, `cl`) in cursor to enable deterministic cursor-only resume; continue validating `qh` for mismatches.
+    - Add MCP client validation steps: truncated page returns `nextCursor`, resume works/mismatch invalidates, snapshots sized correctly.
+    - _Requirements: 5.1, 5.2, 14.1, 14.2, 16.1_
   - [ ] 9.3 Build filter_data tool with predicate engine
     - Implement filter expression parser (comparisons, logical operators) and evaluate rows via streaming iteration.
     - Support configurable row limits and opaque pagination cursors (unit=rows) embedding `predicateHash` (`ph`); validate `wbv` and `ph` on resume and return `CURSOR_INVALID` when mismatched; align metadata with read_range.
+    - Mirror search_data: include predicate provenance in cursor (e.g., original predicate string and optional column scope) to allow cursor-only resume without explicit inputs, while still enforcing `ph` validation for mismatches.
     - Return validation errors for unsupported operators with corrective guidance.
     - _Requirements: 8.1, 8.2, 8.3, 8.4_
 

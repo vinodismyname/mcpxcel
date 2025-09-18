@@ -264,8 +264,12 @@ sequenceDiagram
     "wbv": 7,               // workbook mutation version snapshot
     "iat": 1726600000,      // issued-at (unix seconds)
     // tool-specific fields (optional)
-    "qh": "<query_hash>",  // search_data
-    "ph": "<pred_hash>"    // filter_data
+    "qh": "<query_hash>",  // search_data binding hash
+    "ph": "<pred_hash>",   // filter_data binding hash
+    // search_data provenance (for deterministic cursor-only resume)
+    "q":  "<query>",       // original query string
+    "rg": true,             // regex flag
+    "cl": [1,6]             // optional column filter (1-based)
   }
 
 - Fields are intentionally short to minimize payload overhead. The token is treated as opaque by clients.
@@ -293,7 +297,7 @@ sequenceDiagram
     - startCol = x1 + off % cols
   - Iterate row-major from (startCol,startRow), honoring page size (`ps`) and global caps.
 - preview_sheet (u=rows): resume at `y = header_row + 1 + off` and continue for `ps` rows.
-- search/filter: resume from result index `off`, recomputing matches deterministically for the same query/predicate hash.
+- search/filter: resume from result index `off`, recomputing matches deterministically for the same query/predicate hash. For search_data, cursors embed the original query parameters (`q`, `rg`, `cl`) so cursor-only resumes (without passing inputs) use the exact same parameters. Handlers still validate `qh` to reject mismatches when inputs are supplied alongside a cursor.
 
 ### Backward Compatibility
 
@@ -304,6 +308,7 @@ sequenceDiagram
 - Cursors MUST NOT include filesystem paths or absolute locations; only the workbook handle ID is included.
 - Cursor lifetime is tied to handle TTLs; servers MAY reject stale cursors after handle expiration with `CURSOR_INVALID`.
 - Encoding is URL-safe base64 to avoid escaping concerns in transports and logs.
+ - Text payloads: For `search_data`, servers MAY include a one-line human-readable summary at the start of the text content (e.g., `matches=<total> returned=<n> truncated=<bool> nextCursor=<token>`), followed by a compact JSON array of results. This improves UX for clients that ignore structured metadata.
 
 ### Error Semantics
 

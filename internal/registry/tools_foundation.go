@@ -3,7 +3,9 @@ package registry
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -102,6 +104,37 @@ type ReadRangeOutput struct {
 	Sheet      string   `json:"sheet"`
 	RangeA1    string   `json:"range"`
 	Meta       PageMeta `json:"meta"`
+}
+
+// SearchDataInput defines parameters for searching values/patterns.
+type SearchDataInput struct {
+	WorkbookID   string `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
+	Sheet        string `json:"sheet" jsonschema_description:"Sheet name"`
+	Query        string `json:"query" jsonschema_description:"Search value or regex pattern"`
+	Regex        bool   `json:"regex,omitempty" jsonschema_description:"Interpret query as regular expression"`
+	Columns      []int  `json:"columns,omitempty" jsonschema_description:"Optional 1-based column indexes to restrict search"`
+	MaxResults   int    `json:"max_results,omitempty" jsonschema_description:"Max matches to return per page (bounded)"`
+	SnapshotCols int    `json:"snapshot_cols,omitempty" jsonschema_description:"Max columns to include in row snapshot (bounded)"`
+	Cursor       string `json:"cursor,omitempty" jsonschema_description:"Opaque pagination cursor; takes precedence over sheet/query/columns/max_results"`
+}
+
+// SearchMatch captures a single search hit with bounded row snapshot.
+type SearchMatch struct {
+	Cell     string   `json:"cell"`
+	Row      int      `json:"row"`
+	Column   int      `json:"column"`
+	Value    string   `json:"value"`
+	Snapshot []string `json:"snapshot,omitempty"`
+}
+
+// SearchDataOutput documents search metadata.
+type SearchDataOutput struct {
+	WorkbookID string        `json:"workbook_id"`
+	Sheet      string        `json:"sheet"`
+	Query      string        `json:"query"`
+	Regex      bool          `json:"regex"`
+	Results    []SearchMatch `json:"results"`
+	Meta       PageMeta      `json:"meta"`
 }
 
 // RegisterFoundationTools defines core tool schemas and placeholder handlers.
@@ -664,6 +697,249 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	}))
 	reg.Register(readRange)
 
+	// search_data
+	searchTool := mcp.NewTool(
+		"search_data",
+		mcp.WithDescription("Search for values or regex patterns with optional column filters and bounded row snapshots"),
+		mcp.WithInputSchema[SearchDataInput](),
+		mcp.WithOutputSchema[SearchDataOutput](),
+	)
+	s.AddTool(searchTool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in SearchDataInput) (*mcp.CallToolResult, error) {
+		id := strings.TrimSpace(in.WorkbookID)
+		sheet := strings.TrimSpace(in.Sheet)
+		query := strings.TrimSpace(in.Query)
+		curTok := strings.TrimSpace(in.Cursor)
+		regex := in.Regex
+		if id == "" {
+			return mcp.NewToolResultError("VALIDATION: workbook_id is required"), nil
+		}
+		maxResults := in.MaxResults
+		if maxResults <= 0 || maxResults > 1000 {
+			maxResults = 50
+		}
+		snapshotCols := in.SnapshotCols
+		if snapshotCols <= 0 || snapshotCols > 256 {
+			snapshotCols = 16
+		}
+		// We'll build the column filter after resolving cursor/inputs
+		var colFilter map[int]struct{}
+
+		// Cursor precedence: when provided, override sheet/maxResults from token; validate hash/version
+		var startOffset int
+		var parsedCur *pagination.Cursor
+		if curTok != "" {
+			pc, derr := pagination.DecodeCursor(curTok)
+			if derr != nil {
+				return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
+			}
+			if pc.Wid != id {
+				return mcp.NewToolResultError("CURSOR_INVALID: cursor workbook does not match provided workbook_id"), nil
+			}
+			if pc.U != pagination.UnitRows {
+				return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; search_data expects rows"), nil
+			}
+			// When query/filters are provided alongside cursor, ensure they bind to the same parameters
+			if query != "" || len(in.Columns) > 0 || in.Regex {
+				qh := computeQueryHash(query, in.Regex, in.Columns)
+				if pc.Qh != "" && pc.Qh != qh {
+					return mcp.NewToolResultError("CURSOR_INVALID: cursor parameters do not match current query/filters"), nil
+				}
+			}
+			sheet = pc.S
+			// If query/regex/columns are not provided on resume, recover them from cursor when available
+			if query == "" && pc.Q != "" {
+				query = pc.Q
+			}
+			if !in.Regex && pc.Rg {
+				regex = true
+			}
+			if len(in.Columns) == 0 && len(pc.Cl) > 0 {
+				in.Columns = pc.Cl
+			}
+			startOffset = pc.Off
+			if pc.Ps > 0 && pc.Ps < maxResults {
+				maxResults = pc.Ps
+			}
+			parsedCur = pc
+		} else {
+			if sheet == "" || query == "" {
+				return mcp.NewToolResultError("VALIDATION: sheet and query are required (or supply cursor)"), nil
+			}
+		}
+
+		// Build column filter set from final in.Columns (possibly recovered from cursor)
+		if len(in.Columns) > 0 {
+			colFilter = make(map[int]struct{}, len(in.Columns))
+			for _, c := range in.Columns {
+				if c >= 1 {
+					colFilter[c] = struct{}{}
+				}
+			}
+		}
+
+		// Perform search under workbook read lock; validate wbv for resumed cursors
+		var output SearchDataOutput
+		output.WorkbookID = id
+		output.Sheet = sheet
+		output.Query = query
+		output.Regex = regex
+
+		err := mgr.WithRead(id, func(f *excelize.File, wbvNow int64) error {
+			if parsedCur != nil && parsedCur.Wbv > 0 && parsedCur.Wbv != wbvNow {
+				return errCursorWbvMismatch
+			}
+
+			// Resolve used range for sheet and derive snapshot anchoring and bounds
+			maxCols := snapshotCols
+			sheetRange := ""
+			xLeft, xRight := 1, snapshotCols
+			if dim, derr := f.GetSheetDimension(sheet); derr == nil && dim != "" {
+				parts := strings.Split(dim, ":")
+				if len(parts) == 2 {
+					x1, _, e1 := excelize.CellNameToCoordinates(parts[0])
+					x2, _, e2 := excelize.CellNameToCoordinates(parts[1])
+					if e1 == nil && e2 == nil && x2 >= x1 {
+						sheetRange = dim
+						cols := x2 - x1 + 1
+						if cols < maxCols {
+							maxCols = cols
+						}
+						xLeft, xRight = x1, x1+maxCols-1
+						if xRight > x2 {
+							xRight = x2
+						}
+					}
+				}
+			}
+
+			// Execute search
+			var matches []string
+			var sErr error
+			if regex {
+				matches, sErr = f.SearchSheet(sheet, query, true)
+			} else {
+				matches, sErr = f.SearchSheet(sheet, query)
+			}
+			if sErr != nil {
+				return sErr
+			}
+
+			// Filter by columns if provided
+			filtered := make([]string, 0, len(matches))
+			if colFilter != nil {
+				for _, cell := range matches {
+					x, _, e := excelize.CellNameToCoordinates(cell)
+					if e != nil {
+						continue
+					}
+					if _, ok := colFilter[x]; ok {
+						filtered = append(filtered, cell)
+					}
+				}
+			} else {
+				filtered = matches
+			}
+
+			// Build results page
+			total := len(filtered)
+			output.Meta.Total = total
+			if startOffset > total {
+				startOffset = total
+			}
+			end := startOffset + maxResults
+			if end > total {
+				end = total
+			}
+			page := filtered[startOffset:end]
+
+			results := make([]SearchMatch, 0, len(page))
+			for _, cell := range page {
+				x, y, e := excelize.CellNameToCoordinates(cell)
+				if e != nil {
+					continue
+				}
+				val, _ := f.GetCellValue(sheet, cell)
+				// Snapshot anchored to left bound of used range
+				rowVals := make([]string, 0, maxCols)
+				for c := xLeft; c <= xRight; c++ {
+					cn, _ := excelize.CoordinatesToCellName(c, y)
+					v, _ := f.GetCellValue(sheet, cn)
+					rowVals = append(rowVals, v)
+				}
+				results = append(results, SearchMatch{Cell: cell, Row: y, Column: x, Value: val, Snapshot: rowVals})
+			}
+			output.Results = results
+			output.Meta.Returned = len(results)
+			output.Meta.Truncated = (startOffset + len(results)) < total
+			if output.Meta.Truncated {
+				// Preserve qh when resuming via cursor; otherwise compute from inputs
+				qh := ""
+				if parsedCur != nil && parsedCur.Qh != "" {
+					qh = parsedCur.Qh
+				} else {
+					qh = computeQueryHash(query, regex, in.Columns)
+				}
+				next := pagination.Cursor{
+					V:   1,
+					Wid: id,
+					S:   sheet,
+					R:   sheetRange,
+					U:   pagination.UnitRows,
+					Off: pagination.NextOffset(startOffset, len(results)),
+					Ps:  maxResults,
+					Wbv: wbvNow,
+					Qh:  qh,
+					Q:   query,
+					Rg:  regex,
+					Cl:  in.Columns,
+				}
+				token, encErr := pagination.EncodeCursor(next)
+				if encErr != nil {
+					return fmt.Errorf("CURSOR_BUILD_FAILED: %v", encErr)
+				}
+				output.Meta.NextCursor = token
+			}
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, workbooks.ErrHandleNotFound) {
+				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+			}
+			if errors.Is(err, errCursorWbvMismatch) {
+				return mcp.NewToolResultError("CURSOR_INVALID: workbook changed since cursor was issued; reopen workbook or restart pagination"), nil
+			}
+			low := strings.ToLower(err.Error())
+			if strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
+				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			}
+			// Cursor build failure mapping
+			if strings.HasPrefix(err.Error(), "CURSOR_BUILD_FAILED:") {
+				return mcp.NewToolResultError("CURSOR_BUILD_FAILED: failed to encode next page cursor; retry or narrow scope"), nil
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("SEARCH_FAILED: %v", err)), nil
+		}
+
+		// Human-friendly summary
+		summary := fmt.Sprintf("matches=%d returned=%d truncated=%v", output.Meta.Total, output.Meta.Returned, output.Meta.Truncated)
+		if output.Meta.Truncated && output.Meta.NextCursor != "" {
+			// Surface nextCursor in summary for clients that ignore structured meta
+			summary = summary + " nextCursor=" + output.Meta.NextCursor
+		}
+		res := mcp.NewToolResultStructured(output, summary)
+		// Attach a human-readable summary line followed by JSON results text
+		if b, jerr := json.Marshal(output.Results); jerr == nil {
+			var sb strings.Builder
+			sb.WriteString(summary)
+			sb.WriteByte('\n')
+			sb.Write(b)
+			res.Content = []mcp.Content{mcp.NewTextContent(sb.String())}
+		} else {
+			res.Content = []mcp.Content{mcp.NewTextContent(summary)}
+		}
+		return res, nil
+	}))
+	reg.Register(searchTool)
+
 	// write_range
 	type WriteRangeInput struct {
 		WorkbookID string     `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
@@ -1206,3 +1482,36 @@ func resolveRange(f *excelize.File, sheet, input string) (int, int, int, int, st
 // Removed helper in favor of errors.Is with workbooks.ErrHandleNotFound
 
 // legacy cursor emission has been removed. Only opaque cursors are supported.
+
+// computeQueryHash returns a short, deterministic hex hash that binds search parameters
+// (query string, regex flag, and restricted columns). This is embedded in pagination
+// cursors (qh) so resuming pages can be validated against the same parameters.
+func computeQueryHash(query string, regex bool, columns []int) string {
+	// Normalize inputs
+	q := strings.TrimSpace(query)
+	// Copy and sort columns for stable representation
+	cols := make([]int, 0, len(columns))
+	for _, c := range columns {
+		if c >= 1 {
+			cols = append(cols, c)
+		}
+	}
+	sort.Ints(cols)
+	var b strings.Builder
+	b.WriteString(q)
+	b.WriteString("|")
+	if regex {
+		b.WriteString("1")
+	} else {
+		b.WriteString("0")
+	}
+	b.WriteString("|")
+	for i, c := range cols {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(strconv.Itoa(c))
+	}
+	sum := sha1.Sum([]byte(b.String()))
+	return hex.EncodeToString(sum[:])
+}
