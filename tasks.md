@@ -138,7 +138,7 @@
   - [x] 10.2 Implement table detection (multiple tables per sheet)
     - Detect rectangular data blocks via streaming scan, header heuristics, and blank-row/column separators; return Top-K candidates with confidence and previews.
     - Ask clarifying question when multiple plausible tables exist; proceed per chosen range.
-  - [ ] 10.3 Add schema profiling & role inference
+  - [x] 10.3 Add schema profiling & role inference
     - Sample ≤100 rows/col to infer roles: measure, dimension, time, id, target. Emit clarifying questions on ambiguity.
     - Data quality checks: missingness, duplicate IDs, negative in nonnegative fields, >100% in percent-like, mixed types.
   - [ ] 10.4 Add bounded insight primitives
