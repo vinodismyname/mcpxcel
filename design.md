@@ -34,7 +34,7 @@ graph TD
         D --> F[Workbook Lifecycle]
         D --> G[Sequential Insights Engine]
         F --> H[Streaming IO (excelize)]
-        G --> I[Planning + Deterministic Primitives]
+        G --> I[Thought Tracking + Deterministic Primitives]
                
         C --> J[Security & Policy]
         C --> K[Logging Hooks]
@@ -55,7 +55,7 @@ graph TD
 1. **Protocol Layer** – Builds `server.NewMCPServer` with tool capabilities plus panic recovery and hooks.[^mcp-basics]  
 2. **Tool Layer** – Typed tool definitions and handlers cover workbook lifecycle, structure discovery, range operations, search, filtering, analytics, write/update, and insight generation.  
 3. **Data Layer** – Streaming access via `Rows`, `Cols`, and `StreamWriter` iterators for predictable memory use.[^excelize-rows][^excelize-stream]  
-4. **Insight Layer** – Sequential Insights planning with bounded, deterministic primitives (variance, composition, concentration, funnel, quality). Clients (LLMs) ask clarifying questions and narrate.
+4. **Insight Layer** – Sequential Insights thought tracking for iterative reasoning, plus bounded, deterministic primitives (composition/mix shift, concentration/HHI, funnel). The LLM selects and executes domain tools; no server‑embedded LLM.
 5. **Security Layer** – Path allow-listing, payload thresholds, and audit logging satisfy directory and compliance requirements.
 
 ## Component Breakdown
@@ -108,7 +108,7 @@ type RuntimeController struct {
 | `filter_data` | 8 | Executes predicate engine with row streaming and stable cursors. |
 | `compute_statistics` | 4 | Calculates stats up to configured cell limits, streaming columns. |
 | `search_data` | 5 | Utilizes `SearchSheet` with optional column filters.[^excelize-rows] |
-| `sequential_insights` | 9,14 | Planning tool returning questions, recommended tool calls, and insight cards; can run bounded primitives. |
+| `sequential_insights` | 9,14 | Generalized sequential thinking tool that tracks planning steps (thought_number/total_thoughts), optional branches, and loop status. No recommendations; the LLM chooses domain tools. Always-on tiny planning card; no analytics. |
 | `detect_tables` | 2 | Detects multiple table regions (ranges) within a sheet; returns Top‑K candidates. Supports `header_sample_rows` and `header_sample_cols` (default 2 x 12, max 5 x 32) to include a compact header sample from each candidate. |
 | `profile_schema` | 4 | Role inference (measure/dimension/time/id/target) + data quality checks. |
 | `composition_shift` | 4 | Quantifies share changes and net effect on KPI (±5pp threshold). |
@@ -138,16 +138,26 @@ srv.AddTool(readRangeTool, mcp.NewTypedToolHandler(handleReadRange))
 
 During startup, the registry publishes the tool catalog so `list_tools` reflects schemas, defaults, and payload ceilings (Requirement 16.1).
 
-#### Sequential Insights (Planning-Only default)
+#### Sequential Insights (Generalized Thought Tracker)
 
-The `sequential_insights` tool provides deterministic, domain‑neutral planning without a server‑embedded LLM. Inputs include `objective`, `path|cursor`, optional `hints`/`constraints`, and step tracking fields. Outputs contain:
-- `current_step` summary
-- `recommended_tools[]` with `tool_name`, `confidence` (0–1), `rationale`, `priority`, and `suggested_inputs`
-- `questions[]` for clarification (e.g., multiple sheets, missing time/measure hints)
-- `insight_cards[]` (empty in planning‑only mode)
-- `meta` with effective runtime limits and `planning_only=true`
+The `sequential_insights` tool mirrors reference sequential thinking servers. It records “thoughts” with counters and optional revision/branch markers to help the LLM iterate and keep context. The tool does not recommend domain tools or parse workbook content; the LLM evaluates the tool catalog (`list_tools`) and chooses calls.
 
-Cursor semantics take precedence over `path` when provided. Bounded compute primitives remain gated by config and are not enabled by default for this phase.
+Inputs:
+- `thought` (string), `next_thought_needed` (bool)
+- `thought_number` (int>=1), `total_thoughts` (int>=1)
+- `is_revision` (bool), `revises_thought` (int)
+- `branch_from_thought` (int), `branch_id` (string)
+- `session_id` (string, optional), `reset_session` (bool)
+ - `show_available_tools` (bool)
+
+Outputs:
+- `thought_number`, `total_thoughts`, `next_thought_needed`, `session_id`
+- `branches[]`, `thought_history_length`
+- `insight_cards[]` (tiny planning meta only)
+- `meta{limits, planning_only=true}`
+
+Notes:
+- In‑memory session store retains a bounded, recent history (no persistence). Clients pass `session_id` to continue. There is no plan token.
 
 ### Workbook Access & Streaming IO (`internal/workbook`)
 
@@ -172,9 +182,9 @@ Pagination cursors capture sheet name, offset, and timestamp to provide stable i
 
 ### Sequential Insights Engine (`internal/insights`)
 
-The insights engine provides a planning loop and bounded, deterministic primitives:
+The insights engine provides a lightweight planning loop and bounded, deterministic primitives:
 
-- Planning: takes objective + context; returns questions, recommended tool calls with confidence/rationale, and insight cards.
+- Planning loop: tracks iterative thoughts (thought_number/total_thoughts), branches, and session state; always emits a tiny planning card with an interleaving cue. It does not recommend tools or generate questions.
 - Table Detection: streaming scan of non-empty blocks; identifies rectangular regions separated by blank rows/columns; ranks candidates by header uniqueness/text-likeness and region size; returns Top‑K candidates with header preview and confidence.
 - Primitives: change over time, variance to baseline/target, driver ranking (Top ± movers), composition shift, concentration (Top-N share, HHI bands), robust outliers (modified z-score), funnel analysis, and data quality checks.
 - Safety: streaming algorithms, Top-N capping with "Other", conservative thresholds, explicit assumptions, and truncation metadata.
@@ -225,8 +235,8 @@ sequenceDiagram
 
    Client->>MCP: call_tool(sequential_insights,...)
    MCP->>Runtime: Acquire request token
-   Runtime->>Insights: Table detection → role inference → (optional) bounded primitives
-   Insights-->>MCP: Questions, recommended tools, and insight cards
+   Runtime->>Insights: Thought tracking + (optional) bounded primitives
+   Insights-->>MCP: Planning meta (tiny card) and loop state
    Runtime->>Runtime: Release request token
    MCP-->>Client: Plan + cards + truncation metadata
 ```

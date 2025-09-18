@@ -1,11 +1,12 @@
-# Task 10 Implementation Plan — Sequential Insights (Domain‑Neutral)
+# Task 10 Implementation Plan — Sequential Insights (Generalized Thought Tracker)
 
 ## Objective
-Design and implement a domain‑neutral Sequential Insights capability for MCPXcel that helps an MCP client (LLM) reason like an analyst using deterministic, bounded primitives. The server provides planning guidance, clarifying questions, recommended tool calls with confidence/rationale, and concise Insight Cards — without embedding any LLM logic on the server.
+Design and implement a domain‑neutral sequential thinking capability for MCPXcel that helps an MCP client (LLM) iterate using a generalized thought tracker (no domain heuristics) plus separate bounded primitives. The server records thoughts and loop counters and always emits a tiny planning meta card — without embedding any LLM logic or making tool recommendations.
 
 ## Success Criteria
-- Expose `sequential_insights` planning tool (path‑only API, cursor precedence) returning:
-  - `current_step`, `recommended_tools`, `questions`, `insight_cards`, `meta`.
+- Expose `sequential_insights` thought tracker returning:
+  - `thought_number`, `total_thoughts`, `next_thought_needed`, `session_id`
+  - `branches[]`, `thought_history_length`, optional `insight_cards[]`, `meta`.
 - Implement bounded primitives (config‑gated): change/variance, driver ranking, composition/mix shift, concentration (Top‑N share, HHI), robust outliers (modified z‑score), funnel analysis.
 - Add multiple‑table detection per sheet, role inference and data quality checks.
 - Maintain caps (≤10k cells, ≤128KB payload) with streaming iterators and clear truncation/assumption metadata.
@@ -13,12 +14,12 @@ Design and implement a domain‑neutral Sequential Insights capability for MCPXc
 ## Non‑Goals
 - No server‑embedded LLM (narrative/strategy remains client‑side).
 - No broad forecasting/seasonality modeling beyond simple comparisons.
-- No stateful session memory beyond normal request context.
+- In‑memory session state only (bounded recent history), no persistence.
 
 ## API Additions (Tool Sketches)
-- `sequential_insights` (planning)
-  - Input: `path|cursor`, optional `sheet|range`, `objective` (string), `available_tools` (string[]), `hints` (role/time/target/stage), `constraints` (caps), `step_number`, `total_steps`, `next_step_needed`, optional revision/branch fields.
-  - Output: `current_step`, `recommended_tools[{ tool_name, confidence, rationale, priority, suggested_inputs, alternatives }]`, `questions[]`, `insight_cards[]`, `meta` (caps, truncation, cursor semantics).
+- `sequential_insights` (thought tracker)
+  - Input: `thought`, `next_thought_needed`, `thought_number`, `total_thoughts`, optional revision/branch fields, `session_id?`, `reset_session?`, flag `show_available_tools`.
+  - Output: `thought_number`, `total_thoughts`, `next_thought_needed`, `session_id`, `branches[]`, `thought_history_length`, always-on `insight_cards[]` (tiny planning cue), `meta`.
 - `detect_tables`
   - Discover rectangular table ranges in a sheet via streaming scan; return Top‑K ranges with header preview + confidence.
 - `profile_schema`
@@ -32,12 +33,11 @@ Design and implement a domain‑neutral Sequential Insights capability for MCPXc
 
 All new tools follow typed schemas via `mcp.NewTool` and `mcp.NewTypedToolHandler` with JSON schema tags and default limits surfaced in `list_tools`.
 
-## Planning Flow
-1) Table Detection → choose range (ask if multiple candidates).
-2) Schema Profiling → role/time inference + quality gate; ask clarifiers if ambiguous.
-3) Pattern Selection → map `objective` to general patterns (change, variance to baseline/target, composition, drivers, concentration, funnel).
-4) Optional Bounded Compute → run streaming primitives under caps; produce Insight Cards with assumptions and evidence snippets.
-5) Recommend Next Steps → precise tool calls with parameters, confidence, rationale; repeat until `next_step_needed=false`.
+## Planning Flow (Client-Orchestrated)
+1) LLM calls `sequential_insights` with a thought and counters; receives updated counters, session_id, and a planning card with an interleaving cue.
+2) LLM chooses domain tools via `list_tools` descriptions (e.g., `detect_tables`, `profile_schema`, `composition_shift`, `concentration_metrics`, `funnel_analysis`).
+3) After each domain tool call, LLM summarizes observations as its next thought and re-calls `sequential_insights` with the same `session_id`.
+4) Repeat until `next_thought_needed=false`.
 
 ## Algorithms & Constraints (Streaming‑Friendly)
 - Table Detection
@@ -62,13 +62,14 @@ All new tools follow typed schemas via `mcp.NewTool` and `mcp.NewTypedToolHandle
   - Missingness %, type mix, negative in nonnegative measures, >100% for percent‑like, duplicate IDs; always include as assumptions.
 
 ## Config & Safety
-- Feature flag: enable bounded compute; default planning‑only.
+- Planning card: always on; no server LLM; deterministic wording.
 - Thresholds: `max_groups`, `top_n`, `mix_pp_threshold`, `outlier_max`, `min_points_for_outliers`.
 - Always respect global caps and emit `meta` with truncation and effective thresholds.
 
 ## Package & File Layout
 - `internal/insights/`
-  - `sequential_insights.go` — handler + schema types, planner orchestration.
+  - `sequential_insights.go` — handler + schema types (generalized thought tracker) and session integration.
+  - `session.go` — in‑memory bounded session store for thought history and branches.
   - `detect_tables.go` — block detection heuristics.
   - `profile_schema.go` — role inference + quality checks.
   - `primitives_change.go` — change/variance + drivers.
@@ -81,7 +82,7 @@ All new tools follow typed schemas via `mcp.NewTool` and `mcp.NewTypedToolHandle
 
 ## Testing Strategy
 - Table‑Driven Unit Tests
-  - Planner: objective → recommended tools (+ params, confidence order).
+  - Planner: thought loop state (counters, session continuity, branches) and presence of tiny planning card.
   - Table Detection: multiple block scenarios; header ambiguity questions.
   - Role Inference: synthetic columns (measure/dimension/time/id/target) with sampling; ambiguity prompts.
   - Primitives: correctness on small XLSX fixtures (Top‑N + Other, HHI bands, z‑score limits, ±5pp composition).
@@ -109,9 +110,9 @@ All new tools follow typed schemas via `mcp.NewTool` and `mcp.NewTypedToolHandle
   - Modified z‑score: https://www.statology.org/modified-z-score/
 
 ## Acceptance Checklist
-- [ ] sequential_insights tool schema and handler scaffolding
+- [ ] sequential_insights generalized thought tracker schema and handler
+- [ ] session store implemented (bounded history), no persistence
 - [ ] detect_tables and profile_schema wired in registry with typed schemas
-- [ ] primitives implemented with caps and metadata; planning‑only default behind config flag
-- [ ] unit tests for planner, detection, inference, primitives; `make test` and `make test-race` pass
+- [ ] primitives implemented with caps and metadata; planning‑only default for meta cards
+- [ ] unit tests for thought tracking + branches, detection, inference, primitives; `make test` and `make test-race` pass
 - [ ] documentation updated (design, steering, requirements) and examples added
-

@@ -47,8 +47,8 @@ go test -race ./internal/...  # Race detection for concurrency
 - **Concurrent Design**: Go goroutines for parallel request handling with per-workbook locking
 - **Bounded Operations**: All operations have configurable limits (10k cells, 128KB payloads, 200 rows)
 - **Path-First API**: Tools accept `path` or `cursor`; no client-visible workbook IDs
-- **Stateless Design**: No persistent server-side sessions; internal handle cache keyed by canonical path for efficiency
-- **Sequential Insights**: Planning tool suggests steps + deterministic primitives; the MCP client/LLM orchestrates execution and narrative
+- **Session-Lite Design**: In‑memory session state for sequential_insights (bounded recent history); all domain tools remain path/cursor-first and stateless
+- **Sequential Insights**: Generalized thought tracker; the MCP client/LLM evaluates tool catalog and orchestrates execution and narrative
 
 ## Configuration
 
@@ -69,7 +69,7 @@ go test -race ./internal/...  # Race detection for concurrency
 ## Insights Test Coverage
 
 - internal/insights has unit tests for:
-  - sequential_insights planner (recommendations, clarifying questions)
+  - sequential_insights thought tracker (loop counters, branches; no recommendations)
   - detect_tables (multi-table detection heuristics)
   - profile_schema (role inference and data quality checks)
   - composition_shift (Top‑N + Other, ±pp mix changes)

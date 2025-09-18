@@ -9,7 +9,7 @@
 │   ├── runtime/         # Concurrency controls and limits
 │   ├── registry/        # Tool registration and wiring
 │   ├── workbooks/       # Excelize adapters and workbook management
-│   ├── insights/        # Sequential insights planning + primitives (domain-neutral)
+│   ├── insights/        # Sequential insights thought tracking + primitives (domain-neutral)
 │   └── integration/     # Integration tests (behind build tag)
 ├── pkg/                 # Reusable helpers for external sharing
 ├── testdata/           # Sanitized .xlsx fixtures for testing
@@ -34,7 +34,7 @@
 - **`internal/runtime`**: Concurrency controls, semaphores, resource limits
 - **`internal/registry`**: Tool registration, MCP server setup, handler wiring
 - **`internal/workbooks`**: Excelize adapters and workbook access by canonical path with TTL caching
-- **`internal/insights`**: Planning tool and deterministic, bounded primitives (variance, composition, concentration, funnel, quality)
+- **`internal/insights`**: Thought tracker and deterministic, bounded primitives (composition/mix shift, concentration/HHI, funnel, quality)
 
 ### Supporting Packages
 
