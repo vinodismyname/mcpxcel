@@ -1,5 +1,11 @@
 # Implementation Plan
 
+- [x] 0. Bootstrap GitHub repository, CI, and v0.1.0
+  - Set module path to `github.com/vinodismyname/mcpxcel`; bump Go to 1.25.0.
+  - Add CI workflow at `.github/workflows/ci.yml` to run `make lint`, `make test`, `make test-race`.
+  - Create README and MIT LICENSE; open PR, merge with squash, and tag `v0.1.0`.
+  - Establish branch protection on `main` and standard per-task PR flow.
+
 - [x] 1. Initialize project scaffolding and tooling
   - Create Go module rooted at `cmd/server`, `internal`, and `pkg` packages with go1.22 toolchain and shared lint/test targets.
   - Add dependencies for `github.com/mark3labs/mcp-go`, `github.com/xuri/excelize/v2`, `github.com/tmc/langchaingo`, `golang.org/x/sync/semaphore`, and structured logging/testing helpers.
@@ -173,3 +179,17 @@
   - Enable optional TLS HTTP transport with connection limits, auth middleware, and structured access logs.
   - Provide systemd unit, sample launch scripts, and operational runbooks covering scaling and observability hooks.
   - _Requirements: 12.4, 15.2, 16.2_
+
+## Per-Task GitHub Workflow
+
+For every task in this plan, follow the same branch/PR/release flow:
+
+- Branch from `main`: `git checkout -b <prefix>/<short-task-name>` (prefix: `feat|fix|chore|docs|refactor`).
+- Implement changes and update docs (`steering/*`, `design.md`, `requirements.md`, `tasks.md`) as needed.
+- Validate locally: `make lint && make test && make test-race`.
+- Commit using imperative subject and clear scope; push branch.
+- Open PR: `gh pr create -B main -H <branch> -t "<scope>: <subject>" -b "Validation: make lint/test; Notes: ..."`.
+- Ensure CI is green; address review feedback.
+- Merge with squash and delete branch: `gh pr merge --squash --delete-branch`.
+- Sync local `main`: `git checkout main && git pull`.
+- If release-worthy, tag and publish: `git tag vX.Y.Z -m "..." && git push origin vX.Y.Z && gh release create vX.Y.Z --generate-notes`.

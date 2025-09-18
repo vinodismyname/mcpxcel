@@ -2,7 +2,7 @@
 
 ## Core Technologies
 
-- **Language**: Go 1.22+
+- **Language**: Go 1.25+
 - **MCP Framework**: mark3labs/mcp-go for Model Context Protocol server implementation
 - **Excel Processing**: Excelize (github.com/xuri/excelize/v2) for spreadsheet operations
 - **LLM Integration**: LangChain-Go for multi-provider LLM support (OpenAI, Anthropic, AWS Bedrock)
@@ -53,3 +53,13 @@ go test -race ./internal/...  # Race detection for concurrency
 - Environment variables for LLM provider selection (LLM_PROVIDER=openai|anthropic)
 - Configurable limits for file size (20MB default), payload size, and operation bounds
 - Local file system access with optional directory allow-lists for security
+
+## CI & Repository Integration
+
+- GitHub Actions workflow: `.github/workflows/ci.yml`.
+  - Triggers on pushes to `main` and pull requests targeting `main`.
+  - Steps: `actions/setup-go@v5` (Go 1.25.x), `make lint`, `make test`, `make test-race`.
+- GitHub CLI (`gh`) supports the standard flow:
+  - Open PR: `gh pr create -B main -H <branch> -t "..." -b "..."`
+  - Merge PR: `gh pr merge --squash --delete-branch`
+  - Tag release and create notes: `git tag vX.Y.Z -m "..." && gh release create vX.Y.Z --generate-notes`

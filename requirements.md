@@ -181,3 +181,15 @@ The MCP Excel Analysis Server is a Model Context Protocol (MCP) compliant servic
 1. WHEN an MCP client calls `list_tools` THEN the server SHALL enumerate each tool (open, read, search, filter, write, transform, insights, metadata-only) with JSON schema definitions covering input parameters, default limits, and response structures
 2. WHEN an MCP client calls `list_resources` or retrieves a resource THEN the server SHALL expose workbook metadata, previews, and configuration references via registered resource URIs with declared MIME types and size bounds
 3. WHEN tool invocations return errors THEN the server SHALL use MCP structured error payloads (code, message, actionable `nextSteps`) consistent with the error catalog defined in this document
+
+### Requirement 17
+
+**User Story:** As a maintainer, I want a reliable GitHub-based release workflow so that quality gates and versioned releases are consistent.
+
+#### Acceptance Criteria
+
+1. WHEN changes are proposed THEN they SHALL be submitted via a pull request targeting `main`.
+2. WHEN CI runs on a pull request THEN it SHALL execute `make lint`, `make test`, and `make test-race` and block merges on failure.
+3. WHEN a PR is merged into `main` THEN the history SHALL be squashed and the branch deleted.
+4. WHEN a release is cut THEN a SemVer tag (`vX.Y.Z`) SHALL be pushed and a GitHub Release generated with notes.
+5. WHEN the module path is referenced THEN it SHALL be `github.com/vinodismyname/mcpxcel`.
