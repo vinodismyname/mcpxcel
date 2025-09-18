@@ -14,14 +14,14 @@ import (
 
 // DetectTablesInput controls multi-table detection within a sheet.
 type DetectTablesInput struct {
-    Path             string `json:"path" validate:"required,filepath_ext" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
-    Sheet            string `json:"sheet" validate:"required" jsonschema_description:"Sheet name to scan"`
-    MaxTables        int    `json:"max_tables,omitempty" validate:"omitempty,min=1,max=10" jsonschema_description:"Max number of table candidates to return (Top-K)"`
-    MaxScanRows      int    `json:"max_scan_rows,omitempty" jsonschema_description:"Max number of rows to scan (bounded)"`
-    MaxScanCols      int    `json:"max_scan_cols,omitempty" jsonschema_description:"Max number of columns to scan (bounded)"`
-    HeaderRow        int    `json:"header_row,omitempty" jsonschema_description:"Optional 1-based header row hint; defaults to first non-empty row of each block"`
-    HeaderSampleRows int    `json:"header_sample_rows,omitempty" validate:"omitempty,min=1,max=5" jsonschema_description:"Include top-N rows of each candidate for header sampling (default 2, max 5)"`
-    HeaderSampleCols int    `json:"header_sample_cols,omitempty" validate:"omitempty,min=1,max=32" jsonschema_description:"Include leftmost N columns of header sample (default 12, max 32)"`
+	Path             string `json:"path" validate:"required,filepath_ext" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
+	Sheet            string `json:"sheet" validate:"required" jsonschema_description:"Sheet name to scan"`
+	MaxTables        int    `json:"max_tables,omitempty" validate:"omitempty,min=1,max=10" jsonschema_description:"Max number of table candidates to return (Top-K)"`
+	MaxScanRows      int    `json:"max_scan_rows,omitempty" jsonschema_description:"Max number of rows to scan (bounded)"`
+	MaxScanCols      int    `json:"max_scan_cols,omitempty" jsonschema_description:"Max number of columns to scan (bounded)"`
+	HeaderRow        int    `json:"header_row,omitempty" jsonschema_description:"Optional 1-based header row hint; defaults to first non-empty row of each block"`
+	HeaderSampleRows int    `json:"header_sample_rows,omitempty" validate:"omitempty,min=1,max=5" jsonschema_description:"Include top-N rows of each candidate for header sampling (default 2, max 5)"`
+	HeaderSampleCols int    `json:"header_sample_cols,omitempty" validate:"omitempty,min=1,max=32" jsonschema_description:"Include leftmost N columns of header sample (default 12, max 32)"`
 }
 
 // TableCandidate describes a detected rectangular region that likely forms a table.
