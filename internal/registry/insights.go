@@ -121,6 +121,96 @@ func RegisterInsightsTools(s *server.MCPServer, reg *Registry, limits runtime.Li
 		return res, nil
 	}))
 	reg.Register(ps)
+
+	// composition_shift
+	composer := &insights.Composer{Limits: limits, Mgr: mgr}
+	cs := mcp.NewTool(
+		"composition_shift",
+		mcp.WithDescription("Compute share-of-total by group across two periods and highlight mix shifts (±pp)"),
+		mcp.WithInputSchema[insights.CompositionShiftInput](),
+		mcp.WithOutputSchema[insights.CompositionShiftOutput](),
+	)
+	s.AddTool(cs, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.CompositionShiftInput) (*mcp.CallToolResult, error) {
+		if strings.TrimSpace(in.Path) == "" || strings.TrimSpace(in.Sheet) == "" || strings.TrimSpace(in.Range) == "" {
+			return mcp.NewToolResultError("VALIDATION: path, sheet, and range are required"), nil
+		}
+		out, err := composer.CompositionShift(ctx, in)
+		if err != nil {
+			low := strings.ToLower(err.Error())
+			if strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
+				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			}
+			if strings.Contains(low, "invalid range") || strings.Contains(low, "coordinates") {
+				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
+			}
+			return mcp.NewToolResultError("ANALYSIS_FAILED: " + err.Error()), nil
+		}
+		summary := fmt.Sprintf("periods=[%s→%s] groups=%d topN=%d truncated=%v", out.PeriodBaseline, out.PeriodCurrent, len(out.Groups), out.TopN, out.Meta.Truncated)
+		res := mcp.NewToolResultStructured(out, summary)
+		res.Content = []mcp.Content{mcp.NewTextContent(summary)}
+		return res, nil
+	}))
+	reg.Register(cs)
+
+	// concentration_metrics
+	concentrator := &insights.Concentrator{Limits: limits, Mgr: mgr}
+	cm := mcp.NewTool(
+		"concentration_metrics",
+		mcp.WithDescription("Compute Top-N share and HHI concentration metrics for a dimension"),
+		mcp.WithInputSchema[insights.ConcentrationMetricsInput](),
+		mcp.WithOutputSchema[insights.ConcentrationMetricsOutput](),
+	)
+	s.AddTool(cm, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.ConcentrationMetricsInput) (*mcp.CallToolResult, error) {
+		if strings.TrimSpace(in.Path) == "" || strings.TrimSpace(in.Sheet) == "" || strings.TrimSpace(in.Range) == "" {
+			return mcp.NewToolResultError("VALIDATION: path, sheet, and range are required"), nil
+		}
+		out, err := concentrator.ConcentrationMetrics(ctx, in)
+		if err != nil {
+			low := strings.ToLower(err.Error())
+			if strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
+				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			}
+			if strings.Contains(low, "invalid range") || strings.Contains(low, "coordinates") {
+				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
+			}
+			return mcp.NewToolResultError("ANALYSIS_FAILED: " + err.Error()), nil
+		}
+		summary := fmt.Sprintf("topN=%d HHI=%.3f band=%s groups=%d truncated=%v", out.TopN, out.HHI, out.Band, len(out.Groups), out.Meta.Truncated)
+		res := mcp.NewToolResultStructured(out, summary)
+		res.Content = []mcp.Content{mcp.NewTextContent(summary)}
+		return res, nil
+	}))
+	reg.Register(cm)
+
+	// funnel_analysis
+	funneler := &insights.Funneler{Limits: limits, Mgr: mgr}
+	fa := mcp.NewTool(
+		"funnel_analysis",
+		mcp.WithDescription("Compute stage and cumulative conversion across ordered funnel stages; detect bottlenecks"),
+		mcp.WithInputSchema[insights.FunnelAnalysisInput](),
+		mcp.WithOutputSchema[insights.FunnelAnalysisOutput](),
+	)
+	s.AddTool(fa, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in insights.FunnelAnalysisInput) (*mcp.CallToolResult, error) {
+		if strings.TrimSpace(in.Path) == "" || strings.TrimSpace(in.Sheet) == "" || strings.TrimSpace(in.Range) == "" {
+			return mcp.NewToolResultError("VALIDATION: path, sheet, and range are required"), nil
+		}
+		out, err := funneler.FunnelAnalysis(ctx, in)
+		if err != nil {
+			low := strings.ToLower(err.Error())
+			if strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
+				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			}
+			if strings.Contains(low, "invalid range") || strings.Contains(low, "coordinates") {
+				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
+			}
+			return mcp.NewToolResultError("ANALYSIS_FAILED: " + err.Error()), nil
+		}
+		summary := fmt.Sprintf("stages=%d bottleneck=%s truncated=%v", len(out.Stages), out.Bottleneck, out.Meta.Truncated)
+		res := mcp.NewToolResultStructured(out, summary)
+		res.Content = []mcp.Content{mcp.NewTextContent(summary)}
+		return res, nil
+	}))
+	reg.Register(fa)
 }
 
 // previewHeader returns a bounded preview slice for compact summaries.
