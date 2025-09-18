@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -23,26 +24,9 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-var errCursorWbvMismatch = errors.New("cursor wbv mismatch")
+var errCursorMtMismatch = errors.New("cursor mt mismatch")
 
 // --- Input / Output Schemas (typed for discovery) ---
-
-// OpenWorkbookInput defines parameters for opening a workbook.
-type OpenWorkbookInput struct {
-	Path string `json:"path" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
-}
-
-// OpenWorkbookOutput documents the response fields for open_workbook.
-type OpenWorkbookOutput struct {
-	WorkbookID      string `json:"workbook_id" jsonschema_description:"Server-assigned workbook handle ID"`
-	MaxPayloadBytes int    `json:"maxPayloadBytes" jsonschema_description:"Effective payload size limit in bytes"`
-	PreviewRowLimit int    `json:"previewRowLimit" jsonschema_description:"Default row limit for previews"`
-}
-
-// CloseWorkbookInput defines parameters for closing a workbook.
-type CloseWorkbookInput struct {
-	WorkbookID string `json:"workbook_id" jsonschema_description:"Workbook handle ID to close"`
-}
 
 // SheetInfo summarizes a sheet without loading full data.
 type SheetInfo struct {
@@ -54,24 +38,24 @@ type SheetInfo struct {
 
 // ListStructureInput defines parameters for structure discovery.
 type ListStructureInput struct {
-	WorkbookID   string `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
+	Path         string `json:"path" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
 	MetadataOnly bool   `json:"metadata_only,omitempty" jsonschema_description:"Return only metadata even for small sheets"`
 }
 
 // ListStructureOutput summarizes workbook structure.
 type ListStructureOutput struct {
-	WorkbookID   string      `json:"workbook_id"`
+	Path         string      `json:"path"`
 	MetadataOnly bool        `json:"metadata_only"`
 	Sheets       []SheetInfo `json:"sheets"`
 }
 
 // PreviewSheetInput defines parameters for previewing a sheet.
 type PreviewSheetInput struct {
-	WorkbookID string `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
-	Sheet      string `json:"sheet" jsonschema_description:"Sheet name to preview"`
-	Rows       int    `json:"rows,omitempty" jsonschema_description:"Max rows to preview (bounded)"`
-	Encoding   string `json:"encoding,omitempty" jsonschema_description:"Output encoding: json or csv"`
-	Cursor     string `json:"cursor,omitempty" jsonschema_description:"Opaque pagination cursor; takes precedence over sheet/rows"`
+	Path     string `json:"path" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
+	Sheet    string `json:"sheet" jsonschema_description:"Sheet name to preview"`
+	Rows     int    `json:"rows,omitempty" jsonschema_description:"Max rows to preview (bounded)"`
+	Encoding string `json:"encoding,omitempty" jsonschema_description:"Output encoding: json or csv"`
+	Cursor   string `json:"cursor,omitempty" jsonschema_description:"Opaque pagination cursor; takes precedence over sheet/rows"`
 }
 
 // PageMeta captures paging/truncation metadata.
@@ -84,32 +68,32 @@ type PageMeta struct {
 
 // PreviewSheetOutput documents preview metadata.
 type PreviewSheetOutput struct {
-	WorkbookID string   `json:"workbook_id"`
-	Sheet      string   `json:"sheet"`
-	Encoding   string   `json:"encoding"`
-	Meta       PageMeta `json:"meta"`
+	Path     string   `json:"path"`
+	Sheet    string   `json:"sheet"`
+	Encoding string   `json:"encoding"`
+	Meta     PageMeta `json:"meta"`
 }
 
 // ReadRangeInput defines parameters for reading a cell range.
 type ReadRangeInput struct {
-	WorkbookID string `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
-	Sheet      string `json:"sheet" jsonschema_description:"Sheet name"`
-	RangeA1    string `json:"range" jsonschema_description:"A1-style cell range (e.g., A1:D50)"`
-	MaxCells   int    `json:"max_cells,omitempty" jsonschema_description:"Max cells to return (bounded)"`
-	Cursor     string `json:"cursor,omitempty" jsonschema_description:"Opaque pagination cursor; takes precedence over sheet/range/max_cells"`
+	Path     string `json:"path" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
+	Sheet    string `json:"sheet" jsonschema_description:"Sheet name"`
+	RangeA1  string `json:"range" jsonschema_description:"A1-style cell range (e.g., A1:D50)"`
+	MaxCells int    `json:"max_cells,omitempty" jsonschema_description:"Max cells to return (bounded)"`
+	Cursor   string `json:"cursor,omitempty" jsonschema_description:"Opaque pagination cursor; takes precedence over sheet/range/max_cells"`
 }
 
 // ReadRangeOutput documents range read metadata.
 type ReadRangeOutput struct {
-	WorkbookID string   `json:"workbook_id"`
-	Sheet      string   `json:"sheet"`
-	RangeA1    string   `json:"range"`
-	Meta       PageMeta `json:"meta"`
+	Path    string   `json:"path"`
+	Sheet   string   `json:"sheet"`
+	RangeA1 string   `json:"range"`
+	Meta    PageMeta `json:"meta"`
 }
 
 // SearchDataInput defines parameters for searching values/patterns.
 type SearchDataInput struct {
-	WorkbookID   string `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
+	Path         string `json:"path" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
 	Sheet        string `json:"sheet" jsonschema_description:"Sheet name"`
 	Query        string `json:"query" jsonschema_description:"Search value or regex pattern"`
 	Regex        bool   `json:"regex,omitempty" jsonschema_description:"Interpret query as regular expression"`
@@ -130,101 +114,38 @@ type SearchMatch struct {
 
 // SearchDataOutput documents search metadata.
 type SearchDataOutput struct {
-	WorkbookID string        `json:"workbook_id"`
-	Sheet      string        `json:"sheet"`
-	Query      string        `json:"query"`
-	Regex      bool          `json:"regex"`
-	Results    []SearchMatch `json:"results"`
-	Meta       PageMeta      `json:"meta"`
+	Path    string        `json:"path"`
+	Sheet   string        `json:"sheet"`
+	Query   string        `json:"query"`
+	Regex   bool          `json:"regex"`
+	Results []SearchMatch `json:"results"`
+	Meta    PageMeta      `json:"meta"`
 }
 
 // RegisterFoundationTools defines core tool schemas and placeholder handlers.
 // Handlers intentionally return UNIMPLEMENTED until later tasks wire logic.
 func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.Limits, mgr *workbooks.Manager) {
-	// open_workbook
-	openTool := mcp.NewTool(
-		"open_workbook",
-		mcp.WithDescription("Open a workbook and return a handle ID with effective limits"),
-		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute or allowed path to an Excel workbook (.xlsx, .xlsm, .xltx, .xltm)")),
-		mcp.WithOutputSchema[OpenWorkbookOutput](),
-	)
-	s.AddTool(openTool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in OpenWorkbookInput) (*mcp.CallToolResult, error) {
-		if strings.TrimSpace(in.Path) == "" {
-			return mcp.NewToolResultError("VALIDATION: path is required"), nil
-		}
-
-		id, err := mgr.Open(ctx, in.Path)
-		if err != nil {
-			// Map common error categories to actionable messages
-			msg := err.Error()
-			lower := strings.ToLower(msg)
-			switch {
-			case strings.Contains(lower, "unsupported format"):
-				return mcp.NewToolResultError("UNSUPPORTED_FORMAT: only .xlsx, .xlsm, .xltx, .xltm supported"), nil
-			case strings.Contains(lower, "denied") || strings.Contains(lower, "not allowed"):
-				return mcp.NewToolResultError("NOT_ALLOWED: path outside allowed directories"), nil
-			case strings.Contains(lower, "not found"):
-				return mcp.NewToolResultError("NOT_FOUND: file not found or inaccessible"), nil
-			case err == context.DeadlineExceeded:
-				return mcp.NewToolResultError("BUSY_RESOURCE: open workbook capacity reached; retry later"), nil
-			default:
-				return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", err)), nil
-			}
-		}
-
-		out := OpenWorkbookOutput{
-			WorkbookID:      id,
-			MaxPayloadBytes: limits.MaxPayloadBytes,
-			PreviewRowLimit: limits.PreviewRowLimit,
-		}
-		fallback := fmt.Sprintf("workbook_id=%s previewRowLimit=%d", out.WorkbookID, out.PreviewRowLimit)
-		return mcp.NewToolResultStructured(out, fallback), nil
-	}))
-	reg.Register(openTool)
-
-	// close_workbook
-	closeTool := mcp.NewTool(
-		"close_workbook",
-		mcp.WithDescription("Close a previously opened workbook handle"),
-		mcp.WithString("workbook_id", mcp.Required(), mcp.Description("Workbook handle ID")),
-		mcp.WithOutputSchema[struct {
-			Success bool `json:"success" jsonschema_description:"True when the handle was closed"`
-		}](),
-	)
-	s.AddTool(closeTool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in CloseWorkbookInput) (*mcp.CallToolResult, error) {
-		id := strings.TrimSpace(in.WorkbookID)
-		if id == "" {
-			return mcp.NewToolResultError("VALIDATION: workbook_id is required"), nil
-		}
-		if err := mgr.CloseHandle(ctx, id); err != nil {
-			if errors.Is(err, workbooks.ErrHandleNotFound) {
-				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
-			}
-			return mcp.NewToolResultError(fmt.Sprintf("CLOSE_FAILED: %v", err)), nil
-		}
-		out := struct {
-			Success bool `json:"success" jsonschema_description:"True when the handle was closed"`
-		}{Success: true}
-		return mcp.NewToolResultStructured(out, "closed"), nil
-	}))
-	reg.Register(closeTool)
 
 	// list_structure
 	listStructure := mcp.NewTool(
 		"list_structure",
 		mcp.WithDescription("Return workbook structure: sheets, dimensions, headers (no cell data)"),
-		mcp.WithString("workbook_id", mcp.Required(), mcp.Description("Workbook handle ID")),
+		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute or allowed path to an Excel workbook")),
 		mcp.WithBoolean("metadata_only", mcp.DefaultBool(false), mcp.Description("Return only metadata even for small sheets")),
 		mcp.WithOutputSchema[ListStructureOutput](),
 	)
 	s.AddTool(listStructure, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ListStructureInput) (*mcp.CallToolResult, error) {
-		id := strings.TrimSpace(in.WorkbookID)
-		if id == "" {
-			return mcp.NewToolResultError("VALIDATION: workbook_id is required"), nil
+		p := strings.TrimSpace(in.Path)
+		if p == "" {
+			return mcp.NewToolResultError("VALIDATION: path is required"), nil
+		}
+		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
+		if openErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 
 		var output ListStructureOutput
-		output.WorkbookID = id
+		output.Path = canonical
 		output.MetadataOnly = in.MetadataOnly
 
 		err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
@@ -314,7 +235,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	preview := mcp.NewTool(
 		"preview_sheet",
 		mcp.WithDescription("Stream a bounded preview of the first N rows of a sheet"),
-		mcp.WithString("workbook_id", mcp.Required(), mcp.Description("Workbook handle ID")),
+		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute or allowed path to an Excel workbook")),
 		mcp.WithString("sheet", mcp.Required(), mcp.Description("Sheet name to preview")),
 		mcp.WithNumber("rows", mcp.DefaultNumber(float64(limits.PreviewRowLimit)), mcp.Min(1), mcp.Max(1000), mcp.Description("Max rows to preview")),
 		mcp.WithString("encoding", mcp.DefaultString("json"), mcp.Enum("json", "csv"), mcp.Description("Output encoding")),
@@ -322,11 +243,15 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		mcp.WithOutputSchema[PreviewSheetOutput](),
 	)
 	s.AddTool(preview, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in PreviewSheetInput) (*mcp.CallToolResult, error) {
-		id := strings.TrimSpace(in.WorkbookID)
+		p := strings.TrimSpace(in.Path)
 		sheet := strings.TrimSpace(in.Sheet)
 		curTok := strings.TrimSpace(in.Cursor)
-		if id == "" {
-			return mcp.NewToolResultError("VALIDATION: workbook_id is required"), nil
+		if p == "" {
+			return mcp.NewToolResultError("VALIDATION: path is required"), nil
+		}
+		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
+		if openErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 		rowsLimit := in.Rows
 		if rowsLimit <= 0 || rowsLimit > 1000 {
@@ -348,8 +273,8 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if derr != nil {
 				return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
 			}
-			if pc.Wid != id {
-				return mcp.NewToolResultError("CURSOR_INVALID: cursor workbook does not match provided workbook_id"), nil
+			if pc.Pt != canonical {
+				return mcp.NewToolResultError("CURSOR_INVALID: cursor path does not match provided path"), nil
 			}
 			if pc.U != pagination.UnitRows {
 				return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; preview_sheet expects rows"), nil
@@ -370,10 +295,17 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		// Accumulate preview in selected encoding
 		var textOut string
 		var sheetRange string
-		err := mgr.WithRead(id, func(f *excelize.File, wbvNow int64) error {
-			// Validate cursor workbook version snapshot under read lock
-			if parsedCur != nil && parsedCur.Wbv > 0 && parsedCur.Wbv != wbvNow {
-				return errCursorWbvMismatch
+		var fileMT int64
+		err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
+			// Compute current file mtime under read lock for cursor emission
+			if fi, serr := os.Stat(canonical); serr == nil {
+				fileMT = fi.ModTime().Unix()
+			}
+			// Validate cursor file mtime under read lock when resuming
+			if parsedCur != nil && parsedCur.Mt > 0 {
+				if parsedCur.Mt != fileMT {
+					return errCursorMtMismatch
+				}
 			}
 
 			// Total rows from dimension when available and capture range for cursor
@@ -471,17 +403,8 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			// Compute truncation and cursor
 			meta.Truncated = meta.Total > 0 && (startOffset+meta.Returned) < meta.Total
 			if meta.Truncated {
-				// Build opaque next cursor with rows unit
-				next := pagination.Cursor{
-					V:   1,
-					Wid: id,
-					S:   sheet,
-					R:   sheetRange,
-					U:   pagination.UnitRows,
-					Off: pagination.NextOffset(startOffset, meta.Returned),
-					Ps:  rowsLimit,
-					Wbv: wbvNow,
-				}
+				// Build opaque next cursor with rows unit and bound mtime
+				next := pagination.Cursor{V: 1, Pt: canonical, S: sheet, R: sheetRange, U: pagination.UnitRows, Off: pagination.NextOffset(startOffset, meta.Returned), Ps: rowsLimit, Mt: fileMT}
 				token, _ := pagination.EncodeCursor(next)
 				meta.NextCursor = token
 			}
@@ -491,24 +414,26 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
-			if errors.Is(err, errCursorWbvMismatch) {
-				return mcp.NewToolResultError("CURSOR_INVALID: workbook changed since cursor was issued; reopen workbook or restart pagination"), nil
+			if errors.Is(err, errCursorMtMismatch) {
+				return mcp.NewToolResultError("CURSOR_INVALID: file changed since cursor was issued; restart pagination"), nil
 			}
-			if strings.Contains(strings.ToLower(err.Error()), "doesn't exist") {
+			if low := strings.ToLower(err.Error()); strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
 				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
 			}
 			return mcp.NewToolResultError(fmt.Sprintf("PREVIEW_FAILED: %v", err)), nil
 		}
 
-		out := PreviewSheetOutput{
-			WorkbookID: id,
-			Sheet:      sheet,
-			Encoding:   enc,
-			Meta:       meta,
+		out := PreviewSheetOutput{Path: canonical, Sheet: sheet, Encoding: enc, Meta: meta}
+		// Text content carries a concise summary followed by the actual preview data
+		summary := fmt.Sprintf("total=%d returned=%d truncated=%v", out.Meta.Total, out.Meta.Returned, out.Meta.Truncated)
+		if out.Meta.Truncated {
+			// Surface nextCursor token for clients that ignore structured meta
+			summary = summary + " nextCursor=" + out.Meta.NextCursor
+		} else {
+			summary = summary + " nextCursor="
 		}
-		// Text content carries the actual preview data; structured carries metadata
 		res := mcp.NewToolResultStructured(out, "preview generated")
-		res.Content = []mcp.Content{mcp.NewTextContent(textOut)}
+		res.Content = []mcp.Content{mcp.NewTextContent(summary + "\n" + textOut)}
 		return res, nil
 	}))
 	reg.Register(preview)
@@ -517,7 +442,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	readRange := mcp.NewTool(
 		"read_range",
 		mcp.WithDescription("Return a bounded cell range with pagination metadata"),
-		mcp.WithString("workbook_id", mcp.Required(), mcp.Description("Workbook handle ID")),
+		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute or allowed path to an Excel workbook")),
 		mcp.WithString("sheet", mcp.Required(), mcp.Description("Sheet name")),
 		mcp.WithString("range", mcp.Required(), mcp.Description("A1-style cell range or named range (e.g., A1:D50)")),
 		mcp.WithNumber("max_cells", mcp.DefaultNumber(float64(limits.MaxCellsPerOp)), mcp.Min(1), mcp.Description("Max cells to return before truncation")),
@@ -525,12 +450,16 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		mcp.WithOutputSchema[ReadRangeOutput](),
 	)
 	s.AddTool(readRange, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ReadRangeInput) (*mcp.CallToolResult, error) {
-		id := strings.TrimSpace(in.WorkbookID)
+		p := strings.TrimSpace(in.Path)
 		sheet := strings.TrimSpace(in.Sheet)
 		rng := strings.TrimSpace(in.RangeA1)
 		curTok := strings.TrimSpace(in.Cursor)
-		if id == "" {
-			return mcp.NewToolResultError("VALIDATION: workbook_id is required"), nil
+		if p == "" {
+			return mcp.NewToolResultError("VALIDATION: path is required"), nil
+		}
+		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
+		if openErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 		maxCells := in.MaxCells
 		if maxCells <= 0 || maxCells > limits.MaxCellsPerOp {
@@ -544,8 +473,8 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if derr != nil {
 				return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
 			}
-			if pc.Wid != id {
-				return mcp.NewToolResultError("CURSOR_INVALID: cursor workbook does not match provided workbook_id"), nil
+			if pc.Pt != canonical {
+				return mcp.NewToolResultError("CURSOR_INVALID: cursor path does not match provided path"), nil
 			}
 			if pc.U != pagination.UnitCells {
 				return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; read_range expects cells"), nil
@@ -569,11 +498,17 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		var meta PageMeta
 		var outRange = rng
 
-		err := mgr.WithRead(id, func(f *excelize.File, wbvNow int64) error {
-			// If resuming from a cursor, validate the workbook version snapshot under the
-			// read lock to avoid races with concurrent writers.
-			if parsedCur != nil && parsedCur.Wbv > 0 && parsedCur.Wbv != wbvNow {
-				return errCursorWbvMismatch
+		var fileMT int64
+		err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
+			// Compute current file mtime under read lock for cursor emission
+			if fi, serr := os.Stat(canonical); serr == nil {
+				fileMT = fi.ModTime().Unix()
+			}
+			// Validate mtime snapshot if resuming from a cursor
+			if parsedCur != nil && parsedCur.Mt > 0 {
+				if parsedCur.Mt != fileMT {
+					return errCursorMtMismatch
+				}
 			}
 			// Resolve named range if needed
 			var x1, y1, x2, y2 int
@@ -581,6 +516,22 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			x1, y1, x2, y2, outRange, parseErr = resolveRange(f, sheet, rng)
 			if parseErr != nil {
 				return parseErr
+			}
+
+			// Explicitly validate that the target sheet exists; otherwise GetCellValue calls
+			// on a non-existent sheet would quietly return empty values without an error.
+			// Using GetSheetMap avoids mutating iterators and is safe under read lock.
+			{
+				exists := false
+				for _, name := range f.GetSheetMap() {
+					if strings.EqualFold(name, sheet) {
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					return fmt.Errorf("sheet does not exist")
+				}
 			}
 
 			if x2 < x1 || y2 < y1 {
@@ -651,17 +602,8 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			meta.Returned = writtenCells
 			meta.Truncated = (startOffset + writtenCells) < total
 			if meta.Truncated {
-				// Build opaque next cursor
-				next := pagination.Cursor{
-					V:   1,
-					Wid: id,
-					S:   sheet,
-					R:   outRange,
-					U:   pagination.UnitCells,
-					Off: pagination.NextOffset(startOffset, writtenCells),
-					Ps:  maxCells,
-					Wbv: wbvNow,
-				}
+				// Build opaque next cursor with bound mtime
+				next := pagination.Cursor{V: 1, Pt: canonical, S: sheet, R: outRange, U: pagination.UnitCells, Off: pagination.NextOffset(startOffset, writtenCells), Ps: maxCells, Mt: fileMT}
 				token, _ := pagination.EncodeCursor(next)
 				meta.NextCursor = token
 			}
@@ -671,29 +613,30 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
-			if errors.Is(err, errCursorWbvMismatch) {
-				return mcp.NewToolResultError("CURSOR_INVALID: workbook changed since cursor was issued; reopen workbook or restart pagination"), nil
+			if errors.Is(err, errCursorMtMismatch) {
+				return mcp.NewToolResultError("CURSOR_INVALID: file changed since cursor was issued; restart pagination"), nil
 			}
 			// Map validation-ish errors
 			lower := strings.ToLower(err.Error())
 			if strings.Contains(lower, "invalid range") || strings.Contains(lower, "coordinates") {
 				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
 			}
-			if strings.Contains(lower, "doesn't exist") {
+			if strings.Contains(lower, "doesn't exist") || strings.Contains(lower, "does not exist") {
 				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
 			}
 			return mcp.NewToolResultError(fmt.Sprintf("READ_FAILED: %v", err)), nil
 		}
 
-		out := ReadRangeOutput{
-			WorkbookID: id,
-			Sheet:      sheet,
-			RangeA1:    outRange,
-			Meta:       meta,
+		out := ReadRangeOutput{Path: canonical, Sheet: sheet, RangeA1: outRange, Meta: meta}
+		// Text payload starts with a concise meta summary followed by data
+		summary := fmt.Sprintf("total=%d returned=%d truncated=%v", out.Meta.Total, out.Meta.Returned, out.Meta.Truncated)
+		if out.Meta.Truncated {
+			summary = summary + " nextCursor=" + out.Meta.NextCursor
+		} else {
+			summary = summary + " nextCursor="
 		}
-		// Text payload is the data; structured holds metadata
 		res := mcp.NewToolResultStructured(out, "range read complete")
-		res.Content = []mcp.Content{mcp.NewTextContent(textOut)}
+		res.Content = []mcp.Content{mcp.NewTextContent(summary + "\n" + textOut)}
 		return res, nil
 	}))
 	reg.Register(readRange)
@@ -706,13 +649,17 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		mcp.WithOutputSchema[SearchDataOutput](),
 	)
 	s.AddTool(searchTool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in SearchDataInput) (*mcp.CallToolResult, error) {
-		id := strings.TrimSpace(in.WorkbookID)
+		p := strings.TrimSpace(in.Path)
 		sheet := strings.TrimSpace(in.Sheet)
 		query := strings.TrimSpace(in.Query)
 		curTok := strings.TrimSpace(in.Cursor)
 		regex := in.Regex
-		if id == "" {
-			return mcp.NewToolResultError("VALIDATION: workbook_id is required"), nil
+		if p == "" {
+			return mcp.NewToolResultError("VALIDATION: path is required"), nil
+		}
+		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
+		if openErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 		maxResults := in.MaxResults
 		if maxResults <= 0 || maxResults > 1000 {
@@ -733,8 +680,8 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if derr != nil {
 				return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
 			}
-			if pc.Wid != id {
-				return mcp.NewToolResultError("CURSOR_INVALID: cursor workbook does not match provided workbook_id"), nil
+			if pc.Pt != canonical {
+				return mcp.NewToolResultError("CURSOR_INVALID: cursor path does not match provided path"), nil
 			}
 			if pc.U != pagination.UnitRows {
 				return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; search_data expects rows"), nil
@@ -780,14 +727,21 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 		// Perform search under workbook read lock; validate wbv for resumed cursors
 		var output SearchDataOutput
-		output.WorkbookID = id
+		output.Path = canonical
 		output.Sheet = sheet
 		output.Query = query
 		output.Regex = regex
 
-		err := mgr.WithRead(id, func(f *excelize.File, wbvNow int64) error {
-			if parsedCur != nil && parsedCur.Wbv > 0 && parsedCur.Wbv != wbvNow {
-				return errCursorWbvMismatch
+		var fileMT int64
+		err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
+			// Compute current file mtime under read lock for cursor emission
+			if fi, serr := os.Stat(canonical); serr == nil {
+				fileMT = fi.ModTime().Unix()
+			}
+			if parsedCur != nil && parsedCur.Mt > 0 {
+				if parsedCur.Mt != fileMT {
+					return errCursorMtMismatch
+				}
 			}
 
 			// Resolve used range for sheet and derive snapshot anchoring and bounds
@@ -880,20 +834,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 				} else {
 					qh = computeQueryHash(query, regex, in.Columns)
 				}
-				next := pagination.Cursor{
-					V:   1,
-					Wid: id,
-					S:   sheet,
-					R:   sheetRange,
-					U:   pagination.UnitRows,
-					Off: pagination.NextOffset(startOffset, len(results)),
-					Ps:  maxResults,
-					Wbv: wbvNow,
-					Qh:  qh,
-					Q:   query,
-					Rg:  regex,
-					Cl:  in.Columns,
-				}
+				next := pagination.Cursor{V: 1, Pt: canonical, S: sheet, R: sheetRange, U: pagination.UnitRows, Off: pagination.NextOffset(startOffset, len(results)), Ps: maxResults, Mt: fileMT, Qh: qh, Q: query, Rg: regex, Cl: in.Columns}
 				token, encErr := pagination.EncodeCursor(next)
 				if encErr != nil {
 					return fmt.Errorf("CURSOR_BUILD_FAILED: %v", encErr)
@@ -906,8 +847,8 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
-			if errors.Is(err, errCursorWbvMismatch) {
-				return mcp.NewToolResultError("CURSOR_INVALID: workbook changed since cursor was issued; reopen workbook or restart pagination"), nil
+			if errors.Is(err, errCursorMtMismatch) {
+				return mcp.NewToolResultError("CURSOR_INVALID: file changed since cursor was issued; restart pagination"), nil
 			}
 			low := strings.ToLower(err.Error())
 			if strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
@@ -943,7 +884,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 	// filter_data
 	type FilterDataInput struct {
-		WorkbookID   string `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
+		Path         string `json:"path" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
 		Sheet        string `json:"sheet" jsonschema_description:"Sheet name"`
 		Predicate    string `json:"predicate" jsonschema_description:"Predicate expression using $N column refs and operators (=,!=,>,<,>=,<=, contains) with AND/OR/NOT and parentheses"`
 		Columns      []int  `json:"columns,omitempty" jsonschema_description:"Optional 1-based column indexes to include in cursor provenance"`
@@ -958,11 +899,11 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	}
 
 	type FilterDataOutput struct {
-		WorkbookID string        `json:"workbook_id"`
-		Sheet      string        `json:"sheet"`
-		Predicate  string        `json:"predicate"`
-		Results    []FilteredRow `json:"results"`
-		Meta       PageMeta      `json:"meta"`
+		Path      string        `json:"path"`
+		Sheet     string        `json:"sheet"`
+		Predicate string        `json:"predicate"`
+		Results   []FilteredRow `json:"results"`
+		Meta      PageMeta      `json:"meta"`
 	}
 
 	filterTool := mcp.NewTool(
@@ -973,12 +914,16 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	)
 
 	s.AddTool(filterTool, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in FilterDataInput) (*mcp.CallToolResult, error) {
-		id := strings.TrimSpace(in.WorkbookID)
+		p := strings.TrimSpace(in.Path)
 		sheet := strings.TrimSpace(in.Sheet)
 		pred := strings.TrimSpace(in.Predicate)
 		curTok := strings.TrimSpace(in.Cursor)
-		if id == "" {
-			return mcp.NewToolResultError("VALIDATION: workbook_id is required"), nil
+		if p == "" {
+			return mcp.NewToolResultError("VALIDATION: path is required"), nil
+		}
+		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
+		if openErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 		maxRows := in.MaxRows
 		if maxRows <= 0 || maxRows > 1000 {
@@ -997,8 +942,8 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if derr != nil {
 				return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
 			}
-			if pc.Wid != id {
-				return mcp.NewToolResultError("CURSOR_INVALID: cursor workbook does not match provided workbook_id"), nil
+			if pc.Pt != canonical {
+				return mcp.NewToolResultError("CURSOR_INVALID: cursor path does not match provided path"), nil
 			}
 			if pc.U != pagination.UnitRows {
 				return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; filter_data expects rows"), nil
@@ -1035,13 +980,20 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		}
 
 		var output FilterDataOutput
-		output.WorkbookID = id
+		output.Path = canonical
 		output.Sheet = sheet
 		output.Predicate = pred
 
-		err := mgr.WithRead(id, func(f *excelize.File, wbvNow int64) error {
-			if parsedCur != nil && parsedCur.Wbv > 0 && parsedCur.Wbv != wbvNow {
-				return errCursorWbvMismatch
+		var fileMT int64
+		err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
+			// Compute current file mtime under read lock for cursor emission
+			if fi, serr := os.Stat(canonical); serr == nil {
+				fileMT = fi.ModTime().Unix()
+			}
+			if parsedCur != nil && parsedCur.Mt > 0 {
+				if parsedCur.Mt != fileMT {
+					return errCursorMtMismatch
+				}
 			}
 			// Resolve used range and snapshot bounds
 			sheetRange := ""
@@ -1118,19 +1070,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 				} else {
 					ph = computePredicateHash(pred, in.Columns)
 				}
-				next := pagination.Cursor{
-					V:   1,
-					Wid: id,
-					S:   sheet,
-					R:   sheetRange,
-					U:   pagination.UnitRows,
-					Off: pagination.NextOffset(startOffset, returned),
-					Ps:  maxRows,
-					Wbv: wbvNow,
-					Ph:  ph,
-					P:   pred,
-					Cl:  in.Columns,
-				}
+				next := pagination.Cursor{V: 1, Pt: canonical, S: sheet, R: sheetRange, U: pagination.UnitRows, Off: pagination.NextOffset(startOffset, returned), Ps: maxRows, Mt: fileMT, Ph: ph, P: pred, Cl: in.Columns}
 				token, encErr := pagination.EncodeCursor(next)
 				if encErr != nil {
 					return fmt.Errorf("CURSOR_BUILD_FAILED: %v", encErr)
@@ -1143,8 +1083,8 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
-			if errors.Is(err, errCursorWbvMismatch) {
-				return mcp.NewToolResultError("CURSOR_INVALID: workbook changed since cursor was issued; reopen workbook or restart pagination"), nil
+			if errors.Is(err, errCursorMtMismatch) {
+				return mcp.NewToolResultError("CURSOR_INVALID: file changed since cursor was issued; restart pagination"), nil
 			}
 			low := strings.ToLower(err.Error())
 			if strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
@@ -1177,13 +1117,13 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 	// write_range
 	type WriteRangeInput struct {
-		WorkbookID string     `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
-		Sheet      string     `json:"sheet" jsonschema_description:"Target sheet name"`
-		RangeA1    string     `json:"range" jsonschema_description:"Target A1 range (e.g., B2:D10)"`
-		Values     [][]string `json:"values" jsonschema_description:"2D array of values matching the range dimensions"`
+		Path    string     `json:"path" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
+		Sheet   string     `json:"sheet" jsonschema_description:"Target sheet name"`
+		RangeA1 string     `json:"range" jsonschema_description:"Target A1 range (e.g., B2:D10)"`
+		Values  [][]string `json:"values" jsonschema_description:"2D array of values matching the range dimensions"`
 	}
 	type WriteRangeOutput struct {
-		WorkbookID   string `json:"workbook_id"`
+		Path         string `json:"path"`
 		Sheet        string `json:"sheet"`
 		RangeA1      string `json:"range"`
 		CellsUpdated int    `json:"cellsUpdated"`
@@ -1197,11 +1137,15 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		mcp.WithOutputSchema[WriteRangeOutput](),
 	)
 	s.AddTool(writeRange, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in WriteRangeInput) (*mcp.CallToolResult, error) {
-		id := strings.TrimSpace(in.WorkbookID)
+		p := strings.TrimSpace(in.Path)
 		sheet := strings.TrimSpace(in.Sheet)
 		rng := strings.TrimSpace(in.RangeA1)
-		if id == "" || sheet == "" || rng == "" {
-			return mcp.NewToolResultError("VALIDATION: workbook_id, sheet, and range are required"), nil
+		if p == "" || sheet == "" || rng == "" {
+			return mcp.NewToolResultError("VALIDATION: path, sheet, and range are required"), nil
+		}
+		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
+		if openErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 		if len(in.Values) == 0 {
 			return mcp.NewToolResultError("VALIDATION: values must be a non-empty 2D array"), nil
@@ -1270,19 +1214,13 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if strings.Contains(lower, "payload exceeds") {
 				return mcp.NewToolResultError("PAYLOAD_TOO_LARGE: reduce range size or split into batches"), nil
 			}
-			if strings.Contains(lower, "doesn't exist") {
+			if strings.Contains(lower, "doesn't exist") || strings.Contains(lower, "does not exist") {
 				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
 			}
 			return mcp.NewToolResultError(fmt.Sprintf("WRITE_FAILED: %v", err)), nil
 		}
 
-		out := WriteRangeOutput{
-			WorkbookID:   id,
-			Sheet:        sheet,
-			RangeA1:      rng,
-			CellsUpdated: updated,
-			Idempotent:   false,
-		}
+		out := WriteRangeOutput{Path: canonical, Sheet: sheet, RangeA1: rng, CellsUpdated: updated, Idempotent: false}
 		summary := fmt.Sprintf("updated=%d nonIdempotent=true", updated)
 		return mcp.NewToolResultStructured(out, summary), nil
 	}))
@@ -1290,13 +1228,13 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 	// apply_formula
 	type ApplyFormulaInput struct {
-		WorkbookID string `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
-		Sheet      string `json:"sheet" jsonschema_description:"Target sheet name"`
-		RangeA1    string `json:"range" jsonschema_description:"Target A1 range to apply the formula"`
-		Formula    string `json:"formula" jsonschema_description:"Formula string (e.g., =SUM(A1:B1))"`
+		Path    string `json:"path" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
+		Sheet   string `json:"sheet" jsonschema_description:"Target sheet name"`
+		RangeA1 string `json:"range" jsonschema_description:"Target A1 range to apply the formula"`
+		Formula string `json:"formula" jsonschema_description:"Formula string (e.g., =SUM(A1:B1))"`
 	}
 	type ApplyFormulaOutput struct {
-		WorkbookID string `json:"workbook_id"`
+		Path       string `json:"path"`
 		Sheet      string `json:"sheet"`
 		RangeA1    string `json:"range"`
 		CellsSet   int    `json:"cellsSet"`
@@ -1310,12 +1248,16 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		mcp.WithOutputSchema[ApplyFormulaOutput](),
 	)
 	s.AddTool(applyFormula, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ApplyFormulaInput) (*mcp.CallToolResult, error) {
-		id := strings.TrimSpace(in.WorkbookID)
+		p := strings.TrimSpace(in.Path)
 		sheet := strings.TrimSpace(in.Sheet)
 		rng := strings.TrimSpace(in.RangeA1)
 		formula := strings.TrimSpace(in.Formula)
-		if id == "" || sheet == "" || rng == "" || formula == "" {
-			return mcp.NewToolResultError("VALIDATION: workbook_id, sheet, range, and formula are required"), nil
+		if p == "" || sheet == "" || rng == "" || formula == "" {
+			return mcp.NewToolResultError("VALIDATION: path, sheet, range, and formula are required"), nil
+		}
+		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
+		if openErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 
 		var cellsSet int
@@ -1357,24 +1299,24 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if strings.Contains(lower, "exceeds max cells") {
 				return mcp.NewToolResultError("PAYLOAD_TOO_LARGE: reduce range size or split into batches"), nil
 			}
-			if strings.Contains(lower, "doesn't exist") {
+			if strings.Contains(lower, "doesn't exist") || strings.Contains(lower, "does not exist") {
 				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
 			}
 			return mcp.NewToolResultError(fmt.Sprintf("APPLY_FORMULA_FAILED: %v", err)), nil
 		}
 
-		out := ApplyFormulaOutput{WorkbookID: id, Sheet: sheet, RangeA1: rng, CellsSet: cellsSet, Idempotent: false}
+		out := ApplyFormulaOutput{Path: canonical, Sheet: sheet, RangeA1: rng, CellsSet: cellsSet, Idempotent: false}
 		summary := fmt.Sprintf("formulas_applied=%d nonIdempotent=true", cellsSet)
 		return mcp.NewToolResultStructured(out, summary), nil
 	}))
 	reg.Register(applyFormula)
 
 	// Annotate tool capability flags via log-friendly text until telemetry middleware is added
-	_ = fmt.Sprintf("foundation tools registered: %d", 7)
+	_ = fmt.Sprintf("foundation tools registered: %d", 8)
 
 	// compute_statistics
 	type ComputeStatisticsInput struct {
-		WorkbookID    string `json:"workbook_id" jsonschema_description:"Workbook handle ID"`
+		Path          string `json:"path" jsonschema_description:"Absolute or allowed path to an Excel workbook"`
 		Sheet         string `json:"sheet" jsonschema_description:"Sheet name"`
 		RangeA1       string `json:"range" jsonschema_description:"A1-style range or defined name to analyze"`
 		ColumnIndices []int  `json:"columns,omitempty" jsonschema_description:"1-based column indexes within the range; omitted means all"`
@@ -1392,10 +1334,10 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	}
 
 	type ComputeStatisticsOutput struct {
-		WorkbookID string `json:"workbook_id"`
-		Sheet      string `json:"sheet"`
-		RangeA1    string `json:"range"`
-		Meta       struct {
+		Path    string `json:"path"`
+		Sheet   string `json:"sheet"`
+		RangeA1 string `json:"range"`
+		Meta    struct {
 			ProcessedCells int  `json:"processedCells"`
 			MaxCells       int  `json:"maxCells"`
 			Truncated      bool `json:"truncated"`
@@ -1449,11 +1391,15 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	}
 
 	s.AddTool(computeStats, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ComputeStatisticsInput) (*mcp.CallToolResult, error) {
-		id := strings.TrimSpace(in.WorkbookID)
+		p := strings.TrimSpace(in.Path)
 		sheet := strings.TrimSpace(in.Sheet)
 		rng := strings.TrimSpace(in.RangeA1)
-		if id == "" || sheet == "" || rng == "" {
-			return mcp.NewToolResultError("VALIDATION: workbook_id, sheet, and range are required"), nil
+		if p == "" || sheet == "" || rng == "" {
+			return mcp.NewToolResultError("VALIDATION: path, sheet, and range are required"), nil
+		}
+		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
+		if openErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 		maxCells := in.MaxCells
 		if maxCells <= 0 || maxCells > limits.MaxCellsPerOp {
@@ -1461,12 +1407,12 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		}
 
 		var out ComputeStatisticsOutput
-		out.WorkbookID = id
+		out.Path = canonical
 		out.Sheet = sheet
 		out.RangeA1 = rng
 		out.Meta.MaxCells = maxCells
 
-		err := mgr.WithRead(id, func(f *excelize.File, wbvNow int64) error {
+		err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
 			// Resolve range coordinates and normalized textual range
 			x1, y1, x2, y2, normalizedRange, perr := resolveRange(f, sheet, rng)
 			if perr != nil {

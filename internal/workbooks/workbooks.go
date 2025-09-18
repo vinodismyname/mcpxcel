@@ -24,6 +24,8 @@ type Handle struct {
 	// version increments after each successful write to provide
 	// cursor stability under concurrent mutations.
 	version int64
+	// canonical absolute path for this workbook
+	path string
 }
 
 // WorkbookGate coordinates capacity for open workbook handles (backed by runtime.Controller).
@@ -36,6 +38,7 @@ type WorkbookGate interface {
 type Manager struct {
 	mu           sync.RWMutex
 	handles      map[string]*Handle
+	byPath       map[string]string // canonical path -> handle ID
 	ttl          time.Duration
 	cleanupEvery time.Duration
 	clock        func() time.Time
@@ -60,6 +63,7 @@ func NewManager(ttl, cleanupEvery time.Duration, gate WorkbookGate, clock func()
 	}
 	return &Manager{
 		handles:      make(map[string]*Handle),
+		byPath:       make(map[string]string),
 		ttl:          ttl,
 		cleanupEvery: cleanupEvery,
 		clock:        clock,
@@ -171,6 +175,11 @@ func (m *Manager) Open(ctx context.Context, path string) (string, error) {
 			return "", err
 		}
 		path = canonical
+	} else {
+		// Best-effort canonicalization; callers should prefer installing a validator
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
 	}
 
 	f, err := excelize.OpenFile(path)
@@ -185,9 +194,11 @@ func (m *Manager) Open(ctx context.Context, path string) (string, error) {
 		m.release()
 		return "", err
 	}
+	h.path = path
 
 	m.mu.Lock()
 	m.handles[id] = h
+	m.byPath[path] = id
 	m.mu.Unlock()
 
 	return id, nil
@@ -265,6 +276,9 @@ func (m *Manager) CloseHandle(ctx context.Context, id string) error {
 	h, ok := m.handles[id]
 	if ok {
 		delete(m.handles, id)
+		if h.path != "" {
+			delete(m.byPath, h.path)
+		}
 	}
 	m.mu.Unlock()
 	if !ok {
@@ -283,6 +297,7 @@ func (m *Manager) EvictExpired() {
 	now := m.clock()
 	var expired []*Handle
 	var expiredIDs []string
+	var expiredPaths []string
 
 	m.mu.RLock()
 	for id, h := range m.handles {
@@ -292,6 +307,7 @@ func (m *Manager) EvictExpired() {
 		if isExpired {
 			expired = append(expired, h)
 			expiredIDs = append(expiredIDs, id)
+			expiredPaths = append(expiredPaths, h.path)
 		}
 	}
 	m.mu.RUnlock()
@@ -309,6 +325,9 @@ func (m *Manager) EvictExpired() {
 
 		m.mu.Lock()
 		delete(m.handles, expiredIDs[i])
+		if p := expiredPaths[i]; p != "" {
+			delete(m.byPath, p)
+		}
 		m.mu.Unlock()
 		m.release()
 	}
@@ -373,4 +392,40 @@ func (h *Handle) Expired(now time.Time) bool {
 // return a canonical absolute path if allowed, or an error when denied.
 type PathValidator interface {
 	ValidateOpenPath(path string) (string, error)
+}
+
+// GetOrOpenByPath returns the handle ID for a canonicalized path, opening it if
+// necessary. It uses the configured PathValidator to canonicalize/authorize the
+// path when available. The returned path is the canonical absolute path used as
+// the cache key.
+func (m *Manager) GetOrOpenByPath(ctx context.Context, path string) (id string, canonical string, err error) {
+	if strings.TrimSpace(path) == "" {
+		return "", "", fmt.Errorf("workbooks: empty path")
+	}
+	// Canonicalize/authorize
+	if m.validator != nil {
+		canonical, err = m.validator.ValidateOpenPath(path)
+		if err != nil {
+			return "", "", err
+		}
+	} else {
+		if abs, aerr := filepath.Abs(path); aerr == nil {
+			canonical = abs
+		} else {
+			canonical = path
+		}
+	}
+	// Fast-path: existing handle for path
+	m.mu.RLock()
+	if hid, ok := m.byPath[canonical]; ok {
+		m.mu.RUnlock()
+		return hid, canonical, nil
+	}
+	m.mu.RUnlock()
+	// Need to open a new handle
+	hid, err := m.Open(ctx, canonical)
+	if err != nil {
+		return "", "", err
+	}
+	return hid, canonical, nil
 }
