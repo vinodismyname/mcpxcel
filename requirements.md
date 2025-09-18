@@ -174,13 +174,12 @@ The MCP Excel Analysis Server is a Model Context Protocol (MCP) compliant servic
 
 ### Requirement 16
 
-**User Story:** As an MCP client developer, I want the server to describe its tools and resources with protocol-compliant schemas, so that I can integrate reliably without reverse engineering behaviors.
+**User Story:** As an MCP client developer, I want the server to describe its tools with protocol-compliant schemas, so that I can integrate reliably without reverse engineering behaviors.
 
 #### Acceptance Criteria
 
 1. WHEN an MCP client calls `list_tools` THEN the server SHALL enumerate each tool (open, read, search, filter, write, transform, insights, metadata-only) with JSON schema definitions covering input parameters, default limits, and response structures
-2. WHEN an MCP client calls `list_resources` or retrieves a resource THEN the server SHALL expose workbook metadata, previews, and configuration references via registered resource URIs with declared MIME types and size bounds
-3. WHEN tool invocations return errors THEN the server SHALL use MCP structured error payloads (code, message, actionable `nextSteps`) consistent with the error catalog defined in this document
+2. WHEN tool invocations return errors THEN the server SHALL use MCP structured error payloads (code, message, actionable `nextSteps`) consistent with the error catalog defined in this document
 
 ### Requirement 17
 

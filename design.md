@@ -12,11 +12,11 @@ Server design is path-first and stateless from a client perspective: tools take 
 
 ## Architectural Goals
 
-1. **Requirement Coverage** – Every tool and resource explicitly maps to requirements 1–16, with discoverable schemas and metadata defaults. 
+1. **Requirement Coverage** – Every tool maps to requirements 1–15 and 16.1, with discoverable schemas and metadata defaults. 
 2. **Streaming First** – Reads and writes prefer Excelize iterators and stream writers to cap memory usage (Req. 2, 3, 5, 8).
 3. **Deterministic Concurrency** – Per-request goroutines, per-workbook locks, and server-wide semaphores satisfy Requirements 1, 6–8, 11–12.
 4. **LLM-ready Insights** – Analytical operations generate concise summaries via LangChainGo chains while respecting payload limits (Req. 4, 9).
-5. **Protocol Fidelity** – Typed tools, structured errors, and resource URIs mirror MCP expectations (Req. 14–16).
+5. **Protocol Fidelity** – Typed tools and structured errors mirror MCP expectations (Req. 14–16.1).
 
 ## High-Level Architecture
 
@@ -29,14 +29,15 @@ graph TD
 
     subgraph "MCP Excel Analysis Server"
         B --> C[Server Core (mcp-go)]
-        C --> D[Tool & Resource Registry]
+        C --> D[Tool Registry]
         C --> E[Concurrency & Rate Controller]
         D --> F[Workbook Lifecycle]
         D --> G[Analytics & Insight Engine]
         F --> H[Streaming IO (excelize)]
         G --> I[LangChainGo Chains]
+               
         C --> J[Security & Policy]
-        C --> K[Telemetry & Hooks]
+        C --> K[Logging Hooks]
     end
 
     subgraph "Storage"
@@ -46,12 +47,12 @@ graph TD
 
     J -.-> L
     E -.-> F
-    K -.-> {Metrics / Audit}
+    K -.-> {Request Logging}
 ```
 
 ### Layered View
 
-1. **Protocol Layer** – Builds `server.NewMCPServer` with tool, resource, and prompt capabilities plus panic recovery and hooks.[^mcp-basics]  
+1. **Protocol Layer** – Builds `server.NewMCPServer` with tool capabilities plus panic recovery and hooks.[^mcp-basics]  
 2. **Tool Layer** – Typed tool definitions and handlers cover workbook lifecycle, structure discovery, range operations, search, filtering, analytics, write/update, and insight generation.  
 3. **Data Layer** – Streaming access via `Rows`, `Cols`, and `StreamWriter` iterators for predictable memory use.[^excelize-rows][^excelize-stream]  
 4. **Insight Layer** – LangChainGo sequences orchestrate descriptive statistics + LLM summarization with configurable memory strategies.[^lchain-chains][^lchain-memory]
@@ -66,16 +67,15 @@ srv := server.NewMCPServer(
     "MCP Excel Analysis Server",
     versionFromBuild(),
     server.WithToolCapabilities(true),
-    server.WithResourceCapabilities(true),
     server.WithPromptCapabilities(false),
     server.WithRecovery(),
-    server.WithHooks(buildHooks(logger, metrics)),
+    server.WithHooks(buildHooks(logger)),
     server.WithToolHandlerMiddleware(loggingMW.ToolMiddleware),
 )
 ```
 
 - `WithRecovery` stops handler panics from terminating the transport.[^mcp-basics]
-- Hooks capture session lifecycle, request tracing, and audit emission.
+- Hooks capture session lifecycle and request tracing via logging.
 - Middleware adds structured logging, rate limiting, and auth checks before tool execution.
 
 ### Concurrency & Rate Control (`internal/runtime`)
@@ -96,7 +96,7 @@ type RuntimeController struct {
 - `openWb` keeps workbook handles under `MaxOpenWorkbooks`; eviction strategy prefers least-recently-used handles managed by the workbook cache.
 - Each tool handler receives the parent `context.Context` so cancellations propagate to Excelize iterators and LangChainGo chains.
 
-### Tool & Resource Registry (`internal/registry`)
+### Tool Registry (`internal/registry`)
 
 | Tool | Requirement(s) | Notes |
 | --- | --- | --- |
@@ -131,13 +131,7 @@ readRangeTool := mcp.NewTool(
 srv.AddTool(readRangeTool, mcp.NewTypedToolHandler(handleReadRange))
 ```
 
-Resources complement tools to expose previews, active configuration, and cached insight artifacts:[^mcp-res]
-
-- `excel://workbook/structure?path=<percent-encoded>` → JSON metadata
-- `excel://workbook/preview/{sheet}?path=<percent-encoded>` → Markdown-or-CSV snapshot
-- `excel://config/limits` → Effective limits advertised to clients (Requirement 15.2)
-
-During startup, the registry publishes both tool catalog and resource catalog so `list_tools` and `list_resources` reflect schemas, defaults, and payload ceilings (Requirement 16.1–16.2).
+During startup, the registry publishes the tool catalog so `list_tools` reflects schemas, defaults, and payload ceilings (Requirement 16.1).
 
 ### Workbook Access & Streaming IO (`internal/workbook`)
 
@@ -184,13 +178,8 @@ conversation := chains.NewConversationChain(llm, memory)
 
 - `SecurityManager.ValidateFilePath` ensures resolved absolute paths stay within `AllowedDirectories` (Requirement 13).  
 - `Validator.ValidateRange` parses A1 ranges, verifying limits before hitting Excelize to prevent expensive operations failing late.  
-- Audit middleware emits `AuditEvent` entries with start/end timestamps, canonical paths, and error codes; events feed metrics for anomaly detection.
+- Audit middleware emits `AuditEvent` entries with start/end timestamps, canonical paths, and error codes.
 
-### Telemetry & Observability (`internal/telemetry`)
-
-- Hooks capture `OnServerStart`, `OnServerStop`, `OnToolCall`, and `OnResourceRead` per mcp-go guidance, updating Prometheus counters and histograms for latency profiling.[^mcp-advanced]
-- Structured logs via `slog` include request IDs, session IDs, canonical paths, and concurrency counters.  
-- Optional notifications use `Server.SendNotificationToAllClients` for long-running jobs (e.g., streaming progress), echoing best practices from mcp-go advanced docs.[^mcp-advanced]
 
 ## Data Flow Scenarios
 
@@ -353,7 +342,7 @@ sequenceDiagram
 ### Configuration & Limits
 
 - Defaults ship in YAML but can be overridden via CLI or env vars. Startup validation rejects invalid overrides with structured configuration errors (Requirement 15.3).
-- Effective limits (`MaxPayloadSize`, `DefaultRowLimit`, concurrency ceilings) are surfaced through the metadata resource and in tool descriptions.
+- Effective limits (`MaxPayloadSize`, `DefaultRowLimit`, concurrency ceilings) are surfaced through tool descriptions and response metadata.
 
 ## Testing Strategy
 
@@ -361,11 +350,10 @@ sequenceDiagram
 2. **Concurrency Tests** – Simulate simultaneous reads/writes using Go race detector and wait groups to assert locking behaviour (Requirement 12).
 3. **Streaming Tests** – Use large fixture files to ensure iterators keep memory usage below thresholds and pagination cursors remain stable (Requirement 3, 14.1).
 4. **LLM Pipeline Tests** – Mock LangChainGo chains to validate fallback logic when providers fail; include token budget enforcement.
-5. **Protocol Tests** – Exercise `list_tools`, `list_resources`, and error payloads using the MCP client harness.
+5. **Protocol Tests** – Exercise `list_tools` and error payloads using the MCP client harness.
 
 ## Performance & Scaling
 
-- Track metrics for request latency, iterator throughput, workbook cache hit ratio, and LangChain invocation time.  
 - Use connection pooling for outbound HTTP clients (LLMs) as in LangChainGo architecture guidance.[^lchain-arch]
 - Support horizontal scaling by running multiple stateless server replicas; long-running workbook handles live in-process only.
 
@@ -389,7 +377,7 @@ sequenceDiagram
 - CI: `.github/workflows/ci.yml` runs `make lint`, `make test`, and `make test-race` on PRs and `main`.
 - Versioning: SemVer tags (e.g., `v0.2.2`) originate from `main`. Tags trigger a GitHub Release with autogenerated notes.
 - Policy: bump the patch version for each completed task; once all tasks in `tasks.md` are complete, bump the minor version. Use additional patch bumps for hotfixes.
-- Latest release: v0.2.4.
+- Latest release: v0.2.5.
 - Go Module: `github.com/vinodismyname/mcpxcel`. Maintain import path consistency, and add `/v2` suffix on major bumps.
 - Developer workflow: branch from `main` → implement + docs → open PR → green CI → squash-merge → `git pull` on `main` → `git tag vX.Y.Z` (if releasing) → `gh release create vX.Y.Z`.
 
@@ -397,7 +385,6 @@ sequenceDiagram
 
 [^mcp-basics]: mark3labs/mcp-go, "Server Basics" – `server.NewMCPServer`, capabilities, recovery middleware. <https://github.com/mark3labs/mcp-go/blob/main/www/docs/pages/servers/basics.mdx>
 [^mcp-typed]: mark3labs/mcp-go, "Advanced Server Features" – typed tools and validation. <https://github.com/mark3labs/mcp-go/blob/main/www/docs/pages/servers/advanced.mdx>
-[^mcp-res]: mark3labs/mcp-go, "Implementing Resources" – resource registration patterns and error handling. <https://github.com/mark3labs/mcp-go/blob/main/www/docs/pages/servers/resources.mdx>
 [^mcp-advanced]: mark3labs/mcp-go, "Advanced Server Features" – hooks, middleware, notifications. <https://github.com/mark3labs/mcp-go/blob/main/www/docs/pages/servers/advanced.mdx>
 [^excelize-rows]: qax-os/excelize documentation, "Worksheet" – streaming row and column iterators, concurrency guarantees. <https://github.com/xuri/excelize-doc/blob/master/en/sheet.md>
 [^excelize-stream]: qax-os/excelize documentation, "Streaming write" – `StreamWriter` usage and constraints. <https://github.com/xuri/excelize-doc/blob/master/en/stream.md>

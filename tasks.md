@@ -13,15 +13,15 @@
   - _Requirements: 15.1, 15.3_
 
 - [x] 2. Stand up MCP server bootstrap and lifecycle management
-  - Initialize `server.NewMCPServer` with `WithToolCapabilities`, `WithResourceCapabilities`, `WithRecovery`, hooks, and middleware following mark3labs/mcp-go advanced server patterns.
+  - Initialize `server.NewMCPServer` with `WithToolCapabilities`, `WithRecovery`, hooks, and middleware following mark3labs/mcp-go advanced server patterns.
   - Implement `ServeStdio` startup with graceful shutdown handler (`context.WithTimeout`, signal capture) and panic-safe logging hooks.
-  - Wire base telemetry hook invocations for session registration, tool calls, and resource reads.
-  - _Requirements: 16.1, 16.2_
+  - Wire base logging hook invocations for session registration and tool calls.
+  - _Requirements: 16.1_
 
 - [x] 3. Implement runtime limits and concurrency controller
   - Build `RuntimeLimits` struct hydrated from configuration for payload, timeout, request, and workbook caps.
   - Create `RuntimeController` wrapping `semaphore.Weighted` controls for global request concurrency and max open workbooks with context-aware acquire/release.
-  - Add middleware ensuring busy responses (`BUSY_RESOURCE`) or queue/backoff when limits are hit, emitting structured metrics counters.
+  - Add middleware ensuring busy responses (`BUSY_RESOURCE`) or queue/backoff when limits are hit.
   - _Requirements: 12.1, 12.2, 12.4, 15.1_
 
 - [x] 4. Create workbook lifecycle manager and stateless handle cache
@@ -33,14 +33,14 @@
 - [x] 5. Build filesystem security and path validation guardrails
   - Construct allow-list policy resolving absolute paths, preventing traversal, and validating extensions before open/write operations.
   - Surface permission errors with actionable codes and log audit events for accepted/denied access attempts.
-  - Add directory configuration validation on startup with fail-safe behavior and telemetry hooks.
+  - Add directory configuration validation on startup with fail-safe behavior and logging hooks.
   - _Requirements: 13.1, 13.2, 13.3, 13.4_
 
 - [x] 6. Implement MCP tool and discovery registry foundation
   - Define typed tool metadata using `mcp.NewTool` plus `mcp.NewTypedToolHandler`, including parameter schemas, defaults, and descriptions.
   - Register tool filters and middleware for permission/context awareness (e.g., admin-gated writes) leveraging server tool filtering APIs.
   - Ensure `list_tools` surfaces schemas, default limits, and capability flags consistent with protocol expectations.
-  - _Requirements: 16.1, 16.2_
+  - _Requirements: 16.1_
 
 - [x] 7. Implement workbook access and structure discovery tools
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5, 10.1, 10.2, 10.3, 10.4, 11.2_
@@ -139,11 +139,7 @@
     - Exclude raw data tables from responses while surfacing trends, anomalies, and recommended next queries.
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
 
-- [ ] 11. Build MCP resource system for metadata and previews
-  - Register file metadata, preview snapshots, and configuration resources using stable URIs (e.g., `excel://files/{base64path}/structure`).
-  - Implement resource handlers returning declared MIME types, size bounds, and honoring allow-list validation.
-  - Surface effective configuration limits and server capabilities through `list_resources` and discovery metadata.
-  - _Requirements: 2.4, 15.2, 16.2_
+ 
 
 - [ ] 12. Establish validation, error handling, and retry semantics
   - _Requirements: 11.3, 11.4, 14.1, 14.2, 14.3, 14.4, 14.5, 16.1_
@@ -164,31 +160,17 @@
     - Convert timeout/cancellation to structured `TIMEOUT` errors with scope-narrowing recommendations.
     - _Requirements: 14.1, 14.3_
 
-- [ ] 13. Add telemetry, monitoring, and audit systems
-  - Integrate logging middleware capturing session/tool/resource events with timing and error annotations.
-  - Expose metrics for request latency, concurrency semaphore saturation, workbook cache hits, and LangChain durations.
-  - Emit audit logs for file access decisions (allowed/denied) and sensitive tool invocations with file paths (or redacted canonical path).
-  - _Requirements: 12.4, 13.4_
+ 
 
-- [ ] 14. Implement configuration management and deployment assets
+- [ ] 14. Implement configuration management
   - Load hierarchical configuration (YAML + env + CLI) with validation, default limit documentation, and effective-value exposure.
   - Provide sample config files and documentation for tuning payload, concurrency, and directory guardrails.
   - Document environment variable `MCPXCEL_ALLOWED_DIRS` (path list) in config docs and reference in design.md.
-  - Create containerization and build scripts (multi-stage Dockerfile, non-root user) aligned with deployment best practices.
   - _Requirements: 15.1, 15.2, 15.3_
 
-- [ ] 15. Build comprehensive test suite
-  - Author table-driven unit tests for each tool handler covering success, validation, concurrency, and error mapping paths.
-  - Create concurrency tests using race detector and stress harnesses to verify semaphore behavior and workbook locks.
-  - Add streaming/large-file fixtures ensuring memory bounds, pagination stability, and iterator closure semantics.
-  - Mock LangChainGo chains/LLMs to test insight fallbacks and timeout handling; include protocol integration tests for `list_tools`/`list_resources`.
-  - _Requirements: All requirements coverage verification_
+ 
 
-- [ ] 16. Add production readiness features
-  - Implement health/readiness endpoints (for HTTP transport) and CLI switches for modes (stdio vs HTTP).
-  - Enable optional TLS HTTP transport with connection limits, auth middleware, and structured access logs.
-  - Provide systemd unit, sample launch scripts, and operational runbooks covering scaling and observability hooks.
-  - _Requirements: 12.4, 15.2, 16.2_
+ 
 
 ## Per-Task GitHub Workflow
 
