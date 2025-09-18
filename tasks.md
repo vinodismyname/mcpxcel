@@ -164,7 +164,7 @@
     - Mark read operations as idempotent with safe retry flags and ensure response determinism across repeated calls.
     - Label write/transform tools with idempotency metadata and provide compensating action guidance where retries are unsafe.
     - _Requirements: 11.3, 11.4_
-  - [ ] 12.4 Handle timeouts and cancellation consistently
+  - [x] 12.4 Handle timeouts and cancellation consistently
     - Propagate `context.Context` through Excelize iterators, aborting work when deadlines expire.
     - Convert timeout/cancellation to structured `TIMEOUT` errors with scope-narrowing recommendations.
     - _Requirements: 14.1, 14.3_

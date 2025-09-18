@@ -151,6 +151,26 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		output.MetadataOnly = in.MetadataOnly
 
 		err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
+			// Respect cancellation before heavy work
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// Respect cancellation before heavy work
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// Respect cancellation before heavy work
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// Respect cancellation
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// Respect cancellation
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			// Gather sheet names in index order
 			sheetMap := f.GetSheetMap()
 			idx := make([]int, 0, len(sheetMap))
@@ -161,6 +181,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 			sheets := make([]SheetInfo, 0, len(idx))
 			for _, i := range idx {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				name := sheetMap[i]
 				si := SheetInfo{Name: name}
 
@@ -200,6 +223,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			return nil
 		})
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return mcperr.New(mcperr.Timeout, "operation exceeded configured time limit"), nil
+			}
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
@@ -299,6 +325,10 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		var sheetRange string
 		var fileMT int64
 		err := mgr.WithRead(id, func(f *excelize.File, _ int64) error {
+			// Respect cancellation before heavy work
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			// Compute current file mtime under read lock for cursor emission
 			if fi, serr := os.Stat(canonical); serr == nil {
 				fileMT = fi.ModTime().Unix()
@@ -333,6 +363,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			if startOffset > 0 {
 				skipped := 0
 				for skipped < startOffset && r.Next() {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					skipped++
 				}
 				// If we reached end before skipping all, nothing left to return
@@ -355,6 +388,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 				count := 0
 				first := true
 				for r.Next() {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					if count >= rowsLimit {
 						break
 					}
@@ -382,6 +418,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 				w := csv.NewWriter(&buf)
 				count := 0
 				for r.Next() {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					if count >= rowsLimit {
 						break
 					}
@@ -413,6 +452,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			return nil
 		})
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return mcperr.New(mcperr.Timeout, "operation exceeded configured time limit"), nil
+			}
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
@@ -571,6 +613,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			emittedRows := 0
 			stop := false
 			for row := startRow; row <= y2 && !stop; row++ {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				// For each row, emit an array of columns
 				if emittedRows > 0 {
 					buf.WriteByte(',')
@@ -582,6 +627,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 					cstart = startCol
 				}
 				for col := cstart; col <= x2; col++ {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					if writtenCells >= maxCells {
 						stop = true
 						break
@@ -612,6 +660,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			return nil
 		})
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return mcperr.New(mcperr.Timeout, "operation exceeded configured time limit"), nil
+			}
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
@@ -788,6 +839,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			filtered := make([]string, 0, len(matches))
 			if colFilter != nil {
 				for _, cell := range matches {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					x, _, e := excelize.CellNameToCoordinates(cell)
 					if e != nil {
 						continue
@@ -814,6 +868,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 			results := make([]SearchMatch, 0, len(page))
 			for _, cell := range page {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				x, y, e := excelize.CellNameToCoordinates(cell)
 				if e != nil {
 					continue
@@ -822,6 +879,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 				// Snapshot anchored to left bound of used range
 				rowVals := make([]string, 0, maxCols)
 				for c := xLeft; c <= xRight; c++ {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					cn, _ := excelize.CoordinatesToCellName(c, y)
 					v, _ := f.GetCellValue(sheet, cn)
 					rowVals = append(rowVals, v)
@@ -849,6 +909,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			return nil
 		})
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return mcperr.New(mcperr.Timeout, "operation exceeded configured time limit"), nil
+			}
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
@@ -1035,6 +1098,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			results := make([]FilteredRow, 0, maxRows)
 
 			for rowsIter.Next() {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				rowIdx++
 				if rowIdx < yTop {
 					continue
@@ -1053,6 +1119,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 						// Build snapshot across [xLeft,xRight]
 						snap := make([]string, 0, xRight-xLeft+1)
 						for c := xLeft; c <= xRight; c++ {
+							if ctx.Err() != nil {
+								return ctx.Err()
+							}
 							absCol := c - 1
 							if absCol >= 0 && absCol < len(rowVals) {
 								snap = append(snap, rowVals[absCol])
@@ -1087,6 +1156,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			return nil
 		})
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return mcperr.New(mcperr.Timeout, "operation exceeded configured time limit"), nil
+			}
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
@@ -1159,6 +1231,14 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 		var updated int
 		err := mgr.WithWrite(id, func(f *excelize.File) error {
+			// Respect cancellation before heavy work
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// Respect cancellation before heavy work
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			// Resolve range and verify dimensions match values
 			x1, y1, x2, y2, resolvedRange, perr := resolveRange(f, sheet, rng)
 			if perr != nil {
@@ -1189,10 +1269,16 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			}
 			// Write each row in ascending order
 			for r := 0; r < rows; r++ {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				startCell, _ := excelize.CoordinatesToCellName(x1, y1+r)
 				// Convert []string to []interface{}
 				rowVals := make([]interface{}, cols)
 				for c := 0; c < cols; c++ {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					rowVals[c] = in.Values[r][c]
 				}
 				if err := sw.SetRow(startCell, rowVals); err != nil {
@@ -1210,6 +1296,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			return nil
 		})
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return mcperr.New(mcperr.Timeout, "operation exceeded configured time limit"), nil
+			}
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
@@ -1281,7 +1370,13 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			}
 			// Apply formula per cell; Excel interprets relative references appropriately
 			for r := y1; r <= y2; r++ {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				for c := x1; c <= x2; c++ {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					cell, _ := excelize.CoordinatesToCellName(c, r)
 					if err := f.SetCellFormula(sheet, cell, formula); err != nil {
 						return err
@@ -1295,6 +1390,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			return nil
 		})
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return mcperr.New(mcperr.Timeout, "operation exceeded configured time limit"), nil
+			}
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
@@ -1481,6 +1579,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			}
 
 			for rowsIter.Next() {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				rowIdx++
 				// Skip until first row of range
 				if rowIdx < y1 {
@@ -1521,6 +1622,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 
 				// Update stats for selected columns
 				for i, idxWithinRange := range indices {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
 					absCol := x1 + (idxWithinRange - 1) - 1 // zero-based absolute column index
 					var cell string
 					if absCol >= 0 && absCol < len(rowVals) {
@@ -1550,6 +1654,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			return nil
 		})
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return mcperr.New(mcperr.Timeout, "operation exceeded configured time limit"), nil
+			}
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
 				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
