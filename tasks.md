@@ -213,3 +213,32 @@ For every task in this plan, follow the same branch/PR/release flow:
   - Remove open_workbook/close_workbook and update schemas/docs accordingly.
   - Reference: .specify/specs/002-path-only-api.md
   - _Requirements: 1 (path-only), 14.1 (cursor stability), 15, 16.1_
+
+- [ ] 9.5 Cursor/Errors polish and meta visibility
+  - Fix and verify first-page cursor `mt` binding across tools; standardize invalid-sheet error mapping; surface one-line meta summaries in text outputs for clients that ignore structured metadata.
+  - Changes:
+    - Always set `mt` (file mtime) when emitting a first-page `nextCursor` for: `preview_sheet`, `read_range`, `search_data`, `filter_data`.
+      - Compute `mt` under the existing read lock via `os.Stat(canonicalPath)` and include it in `pagination.Cursor{ Mt: <mtime> }` for the emitted token (regardless of whether the call was a fresh page or a resume).
+      - Remove any code paths that only populate `mt` when resuming from an existing cursor.
+    - Standardize INVALID_SHEET mapping for preview/list/read/search/filter/write tools:
+      - Map excelize error messages containing either "doesn't exist" OR "does not exist" (case-insensitive) to `INVALID_SHEET: sheet not found`.
+      - Ensure `preview_sheet` and `read_range` adopt the same mapping already used in `search_data`/`filter_data`.
+    - Meta visibility for preview/read text outputs:
+      - Prepend a single-line summary to the text response content (before the data) using the format:
+        - `total=<n> returned=<m> truncated=<bool> nextCursor=<token-or-empty>`
+      - Keep structured metadata (`meta.total`, `meta.returned`, `meta.truncated`, `meta.nextCursor`) unchanged; summary is an additive UX improvement for clients that ignore structured fields.
+      - Respect payload bounds; keep summary concise and avoid duplicating large data.
+    - Documentation:
+      - Update `design.md` to note that `preview_sheet` and `read_range` include a one-line summary prefix in text content (similar to search/filter), while structured metadata remains authoritative.
+  - Tests (table-driven where practical):
+    - Cursor `mt` population:
+      - Invoke each tool with parameters that guarantee truncation (small `rows`/`max_cells`/`max_results`), capture `meta.nextCursor`, decode with `pkg/pagination.DecodeCursor`, and assert: `pt` equals canonical path; `mt > 0`; `u` matches tool (`rows` for preview/search/filter, `cells` for read_range); offsets/page sizes are correct.
+    - INVALID_SHEET mapping:
+      - Simulate invalid sheet errors for `preview_sheet` and `read_range` and assert error code `INVALID_SHEET` for both "doesn't exist" and "does not exist" message variants (can stub/force messages or use an excelize call that produces each message on different platforms).
+    - Meta summary presence:
+      - For `preview_sheet` and `read_range`, assert that the first text content item includes the summary line; verify `meta` in structured payload matches the summary values.
+  - Manual verification (MCP client):
+    - Read tools: Force truncation and confirm the summary line appears in text output and `meta.nextCursor` is present; decode cursor to verify `pt` and `mt` non-zero.
+    - Cursor path-binding: Copy the workbook to a new path, obtain a `nextCursor` on the original path, then call the same tool with `{ path: COPY_PATH, cursor: <oldCursor> }` and assert `CURSOR_INVALID` (path mismatch).
+  - Validation: `make lint && make test && make test-race`.
+  - _Requirements: 14.1 (cursor stability), 14.2 (error catalog), 16.1 (schemas/behavior documentation)_
