@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Onboarding & Required Reading
-Before doing anything, You MUST first read `steering/product.md`, `steering/structure.md`, `steering/tech.md`, `design.md`, `requirements.md`, `tasks.md` , `plans/010-sequential_insights.md` and `plans/011-tool_description_overhaul.md. Mark completed checklist items directly in `tasks.md` and create a Git commit immediately after each task is checked off. Use the MCP tools (`octodoc`, `ref`) to search and get task relavant documentation/references that will help you with the implementation before implementing changes.
+Before doing anything, You MUST first read `steering/product.md`, `steering/structure.md`, `steering/tech.md`, `design.md`, `requirements.md`, `tasks.md`. Mark completed checklist items directly in `tasks.md` and create a Git commit immediately after each task is checked off. Use the MCP tools (`octodoc`, `ref`) to search and get task relavant documentation/references that will help you with the implementation before implementing changes.
 
 ## Project Structure & Module Organization
 - `cmd/server`: MCP server entrypoint and CLI wiring.

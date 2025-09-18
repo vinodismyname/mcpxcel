@@ -152,7 +152,7 @@
 
 - [ ] 12. Establish validation, error handling, and retry semantics
   - _Requirements: 11.3, 11.4, 14.1, 14.2, 14.3, 14.4, 14.5, 16.1_
-  - [ ] 12.1 Build structured error catalog and mapping
+  - [x] 12.1 Build structured error catalog and mapping
     - Define canonical MCP error codes/messages aligned with requirements (e.g., `FILE_TOO_LARGE`, `BUSY_RESOURCE`, `CORRUPT_WORKBOOK`).
     - Provide helper to wrap internal errors into `mcp.NewToolResultError` including actionable `nextSteps` and retry hints.
     - _Requirements: 14.2, 14.5, 16.1_
