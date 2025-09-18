@@ -20,7 +20,7 @@ Before coding, You must first read `steering/product.md`, `steering/structure.md
 - `make test-race`: run race-enabled tests for `internal/...` packages.
 
 ## Coding Style & Naming Conventions
-Use Go 1.22 tooling: tabs for indentation, gofmt + goimports on save, and idiomatic Go error handling. Follow CamelCase for exported identifiers, snake_case filenames, and `VerbNoun` handler names (e.g., `OpenWorkbookHandler`). Keep packages single-purpose, colocate tests beside implementation, and document new limits in `config/`.
+Use Go 1.25 tooling: tabs for indentation, gofmt + goimports on save, and idiomatic Go error handling. Follow CamelCase for exported identifiers, snake_case filenames, and `VerbNoun` handler names (e.g., `OpenWorkbookHandler`). Keep packages single-purpose, colocate tests beside implementation, and document new limits in `config/`.
 
 ## Testing Guidelines
 Author table-driven tests in `*_test.go` files and cover success, validation errors, and busy-limit paths. Use fixtures under `testdata/` for streaming scenarios and guard memory via iterator patterns. Run `make test` for coverage and `make test-race` when touching concurrency or workbook locking logic. Ensure responses assert metadata fields like `total`, `returned`, `truncated`, and `nextCursor`.
