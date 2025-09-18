@@ -43,5 +43,9 @@ For every task in `tasks.md`, follow this exact workflow:
 
 Do not push directly to `main`. Ensure all configuration and documentation changes accompany code changes in the same PR when relevant.
 
+## Agent Note: Versioning Policy
+- After completing each task in `tasks.md`, bump the minor version (v0.MINOR+1.0) and publish a release.
+- Reserve patch versions for hotfixes that do not correspond to a full task completion.
+
 ## Security & Configuration Tips
 Respect directory allow-lists when accessing workbooks; never bypass via manual path joins. Keep operations bounded (≤10k cells, ≤128KB payload) and surface new limits through metadata. Document environment or config additions in `config/` and `design.md`. Use existing logging and middleware hooks instead of ad-hoc prints for telemetry or audits.
