@@ -175,6 +175,7 @@ Pagination cursors capture sheet name, offset, and timestamp to provide stable i
 The insights engine provides a planning loop and bounded, deterministic primitives:
 
 - Planning: takes objective + context; returns questions, recommended tool calls with confidence/rationale, and insight cards.
+- Table Detection: streaming scan of non-empty blocks; identifies rectangular regions separated by blank rows/columns; ranks candidates by header uniqueness/text-likeness and region size; returns Top‑K candidates with header preview and confidence.
 - Primitives: change over time, variance to baseline/target, driver ranking (Top ± movers), composition shift, concentration (Top-N share, HHI bands), robust outliers (modified z-score), funnel analysis, and data quality checks.
 - Safety: streaming algorithms, Top-N capping with "Other", conservative thresholds, explicit assumptions, and truncation metadata.
 
