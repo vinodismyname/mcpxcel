@@ -309,6 +309,17 @@ sequenceDiagram
 - `CURSOR_INVALID`: Returned when the cursor cannot be decoded, validation fails, the file is missing/inaccessible, or the embedded `mt` no longer matches the current file.
 - Responses include actionable guidance: reopen/refresh the workbook, restart pagination, or narrow scope.
 
+### Structured Error Catalog
+
+The server standardizes all tool failures using a canonical error catalog implemented in `pkg/mcperr`.
+
+- Format: `CODE: message | nextSteps: <guidance; semi‑colon separated>` so MCP clients that only surface a string still receive actionable help.
+- Common codes: `VALIDATION`, `INVALID_HANDLE`, `INVALID_SHEET`, `CURSOR_INVALID`, `CURSOR_BUILD_FAILED`, `BUSY_RESOURCE`, `TIMEOUT`, `LIMIT_EXCEEDED`, `PAYLOAD_TOO_LARGE`, `FILE_TOO_LARGE`, `OPEN_FAILED`, `DISCOVERY_FAILED`, `PREVIEW_FAILED`, `READ_FAILED`, `WRITE_FAILED`, `APPLY_FORMULA_FAILED`, `SEARCH_FAILED`, `FILTER_FAILED`, `PLANNING_FAILED`, `DETECTION_FAILED`, `ANALYSIS_FAILED`, `UNSUPPORTED_FORMAT`, `PERMISSION_DENIED`, `CORRUPT_WORKBOOK`.
+- Handlers call `mcperr.FromText("CODE: details")` or `mcperr.New(mcperr.Code, message)` to enrich errors with consistent next steps and retry hints.
+- Mappings centralize fragile cases, e.g. `INVALID_SHEET` detection for excelize errors containing "doesn't exist" or "does not exist" (case‑insensitive).
+
+This satisfies Requirements 14.2 and 16.1 by providing consistent codes, human‑readable messages, and actionable guidance across all tools.
+
 ## Implementation Guidelines
 
 ### Tool Registration & Validation

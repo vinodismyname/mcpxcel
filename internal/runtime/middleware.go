@@ -6,6 +6,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/vinodismyname/mcpxcel/pkg/mcperr"
 )
 
 // Middleware enforces runtime limits for tool calls using the Controller.
@@ -33,8 +34,8 @@ func (m *Middleware) ToolMiddleware(next server.ToolHandlerFunc) server.ToolHand
 
 		if err := m.ctrl.AcquireRequest(acquireCtx); err != nil {
 			// Return a tool-level error so the client can self-correct/retry.
-			msg := fmt.Sprintf("BUSY_RESOURCE: concurrent request limit reached (max=%d). Please retry shortly.", m.ctrl.limits.MaxConcurrentRequests)
-			return mcp.NewToolResultError(msg), nil
+			msg := fmt.Sprintf("%s: concurrent request limit reached (max=%d). Please retry shortly.", mcperr.BusyResource, m.ctrl.limits.MaxConcurrentRequests)
+			return mcperr.FromText(msg), nil
 		}
 		defer m.ctrl.ReleaseRequest()
 
@@ -51,7 +52,7 @@ func (m *Middleware) ToolMiddleware(next server.ToolHandlerFunc) server.ToolHand
 
 		// If the underlying handler surfaced a context deadline, prefer a tool-level timeout error.
 		if err == context.DeadlineExceeded || (callCtx.Err() == context.DeadlineExceeded && err == nil && res == nil) {
-			return mcp.NewToolResultError("TIMEOUT: operation exceeded configured time limit"), nil
+			return mcperr.New(mcperr.Timeout, "operation exceeded configured time limit"), nil
 		}
 
 		return res, err

@@ -20,6 +20,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/vinodismyname/mcpxcel/internal/runtime"
 	"github.com/vinodismyname/mcpxcel/internal/workbooks"
+	"github.com/vinodismyname/mcpxcel/pkg/mcperr"
 	"github.com/vinodismyname/mcpxcel/pkg/pagination"
 	"github.com/xuri/excelize/v2"
 )
@@ -137,11 +138,11 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 	s.AddTool(listStructure, mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, in ListStructureInput) (*mcp.CallToolResult, error) {
 		p := strings.TrimSpace(in.Path)
 		if p == "" {
-			return mcp.NewToolResultError("VALIDATION: path is required"), nil
+			return mcperr.FromText("VALIDATION: path is required"), nil
 		}
 		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
 		if openErr != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
+			return mcperr.FromText(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 
 		var output ListStructureOutput
@@ -199,9 +200,9 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		})
 		if err != nil {
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
-				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
-			return mcp.NewToolResultError(fmt.Sprintf("DISCOVERY_FAILED: %v", err)), nil
+			return mcperr.FromText(fmt.Sprintf("DISCOVERY_FAILED: %v", err)), nil
 		}
 
 		// Build a human-readable summary including sheet names and dimensions
@@ -247,11 +248,11 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		sheet := strings.TrimSpace(in.Sheet)
 		curTok := strings.TrimSpace(in.Cursor)
 		if p == "" {
-			return mcp.NewToolResultError("VALIDATION: path is required"), nil
+			return mcperr.FromText("VALIDATION: path is required"), nil
 		}
 		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
 		if openErr != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
+			return mcperr.FromText(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 		rowsLimit := in.Rows
 		if rowsLimit <= 0 || rowsLimit > 1000 {
@@ -262,7 +263,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			enc = "json"
 		}
 		if enc != "json" && enc != "csv" {
-			return mcp.NewToolResultError("VALIDATION: encoding must be 'json' or 'csv'"), nil
+			return mcperr.FromText("VALIDATION: encoding must be 'json' or 'csv'"), nil
 		}
 
 		// Cursor precedence: when provided, override sheet/rows from token
@@ -271,13 +272,13 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		if curTok != "" {
 			pc, derr := pagination.DecodeCursor(curTok)
 			if derr != nil {
-				return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
+				return mcperr.FromText("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
 			}
 			if pc.Pt != canonical {
-				return mcp.NewToolResultError("CURSOR_INVALID: cursor path does not match provided path"), nil
+				return mcperr.FromText("CURSOR_INVALID: cursor path does not match provided path"), nil
 			}
 			if pc.U != pagination.UnitRows {
-				return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; preview_sheet expects rows"), nil
+				return mcperr.FromText("CURSOR_INVALID: unit mismatch; preview_sheet expects rows"), nil
 			}
 			sheet = pc.S
 			startOffset = pc.Off
@@ -287,7 +288,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			parsedCur = pc
 		} else {
 			if sheet == "" {
-				return mcp.NewToolResultError("VALIDATION: sheet is required (or supply cursor)"), nil
+				return mcperr.FromText("VALIDATION: sheet is required (or supply cursor)"), nil
 			}
 		}
 
@@ -412,15 +413,15 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		})
 		if err != nil {
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
-				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
 			if errors.Is(err, errCursorMtMismatch) {
-				return mcp.NewToolResultError("CURSOR_INVALID: file changed since cursor was issued; restart pagination"), nil
+				return mcperr.FromText("CURSOR_INVALID: file changed since cursor was issued; restart pagination"), nil
 			}
-			if low := strings.ToLower(err.Error()); strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
-				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			if mcperr.IsInvalidSheet(err) {
+				return mcperr.FromText("INVALID_SHEET: sheet not found"), nil
 			}
-			return mcp.NewToolResultError(fmt.Sprintf("PREVIEW_FAILED: %v", err)), nil
+			return mcperr.FromText(fmt.Sprintf("PREVIEW_FAILED: %v", err)), nil
 		}
 
 		out := PreviewSheetOutput{Path: canonical, Sheet: sheet, Encoding: enc, Meta: meta}
@@ -455,11 +456,11 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		rng := strings.TrimSpace(in.RangeA1)
 		curTok := strings.TrimSpace(in.Cursor)
 		if p == "" {
-			return mcp.NewToolResultError("VALIDATION: path is required"), nil
+			return mcperr.FromText("VALIDATION: path is required"), nil
 		}
 		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
 		if openErr != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
+			return mcperr.FromText(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 		maxCells := in.MaxCells
 		if maxCells <= 0 || maxCells > limits.MaxCellsPerOp {
@@ -471,13 +472,13 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		if curTok != "" {
 			pc, derr := pagination.DecodeCursor(curTok)
 			if derr != nil {
-				return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
+				return mcperr.FromText("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
 			}
 			if pc.Pt != canonical {
-				return mcp.NewToolResultError("CURSOR_INVALID: cursor path does not match provided path"), nil
+				return mcperr.FromText("CURSOR_INVALID: cursor path does not match provided path"), nil
 			}
 			if pc.U != pagination.UnitCells {
-				return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; read_range expects cells"), nil
+				return mcperr.FromText("CURSOR_INVALID: unit mismatch; read_range expects cells"), nil
 			}
 			// Override inputs using cursor values
 			sheet = pc.S
@@ -489,7 +490,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			parsedCur = pc
 		} else {
 			if sheet == "" || rng == "" {
-				return mcp.NewToolResultError("VALIDATION: sheet and range are required (or supply cursor)"), nil
+				return mcperr.FromText("VALIDATION: sheet and range are required (or supply cursor)"), nil
 			}
 		}
 
@@ -611,20 +612,20 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		})
 		if err != nil {
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
-				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
 			if errors.Is(err, errCursorMtMismatch) {
-				return mcp.NewToolResultError("CURSOR_INVALID: file changed since cursor was issued; restart pagination"), nil
+				return mcperr.FromText("CURSOR_INVALID: file changed since cursor was issued; restart pagination"), nil
 			}
 			// Map validation-ish errors
 			lower := strings.ToLower(err.Error())
 			if strings.Contains(lower, "invalid range") || strings.Contains(lower, "coordinates") {
-				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
+				return mcperr.FromText("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
 			}
-			if strings.Contains(lower, "doesn't exist") || strings.Contains(lower, "does not exist") {
-				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			if mcperr.IsInvalidSheet(err) {
+				return mcperr.FromText("INVALID_SHEET: sheet not found"), nil
 			}
-			return mcp.NewToolResultError(fmt.Sprintf("READ_FAILED: %v", err)), nil
+			return mcperr.FromText(fmt.Sprintf("READ_FAILED: %v", err)), nil
 		}
 
 		out := ReadRangeOutput{Path: canonical, Sheet: sheet, RangeA1: outRange, Meta: meta}
@@ -655,11 +656,11 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		curTok := strings.TrimSpace(in.Cursor)
 		regex := in.Regex
 		if p == "" {
-			return mcp.NewToolResultError("VALIDATION: path is required"), nil
+			return mcperr.FromText("VALIDATION: path is required"), nil
 		}
 		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
 		if openErr != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
+			return mcperr.FromText(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 		maxResults := in.MaxResults
 		if maxResults <= 0 || maxResults > 1000 {
@@ -678,19 +679,19 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		if curTok != "" {
 			pc, derr := pagination.DecodeCursor(curTok)
 			if derr != nil {
-				return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
+				return mcperr.FromText("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
 			}
 			if pc.Pt != canonical {
-				return mcp.NewToolResultError("CURSOR_INVALID: cursor path does not match provided path"), nil
+				return mcperr.FromText("CURSOR_INVALID: cursor path does not match provided path"), nil
 			}
 			if pc.U != pagination.UnitRows {
-				return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; search_data expects rows"), nil
+				return mcperr.FromText("CURSOR_INVALID: unit mismatch; search_data expects rows"), nil
 			}
 			// When query/filters are provided alongside cursor, ensure they bind to the same parameters
 			if query != "" || len(in.Columns) > 0 || in.Regex {
 				qh := computeQueryHash(query, in.Regex, in.Columns)
 				if pc.Qh != "" && pc.Qh != qh {
-					return mcp.NewToolResultError("CURSOR_INVALID: cursor parameters do not match current query/filters"), nil
+					return mcperr.FromText("CURSOR_INVALID: cursor parameters do not match current query/filters"), nil
 				}
 			}
 			sheet = pc.S
@@ -711,7 +712,7 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			parsedCur = pc
 		} else {
 			if sheet == "" || query == "" {
-				return mcp.NewToolResultError("VALIDATION: sheet and query are required (or supply cursor)"), nil
+				return mcperr.FromText("VALIDATION: sheet and query are required (or supply cursor)"), nil
 			}
 		}
 
@@ -845,20 +846,19 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		})
 		if err != nil {
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
-				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
 			if errors.Is(err, errCursorMtMismatch) {
-				return mcp.NewToolResultError("CURSOR_INVALID: file changed since cursor was issued; restart pagination"), nil
+				return mcperr.FromText("CURSOR_INVALID: file changed since cursor was issued; restart pagination"), nil
 			}
-			low := strings.ToLower(err.Error())
-			if strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
-				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			if mcperr.IsInvalidSheet(err) {
+				return mcperr.FromText("INVALID_SHEET: sheet not found"), nil
 			}
 			// Cursor build failure mapping
 			if strings.HasPrefix(err.Error(), "CURSOR_BUILD_FAILED:") {
-				return mcp.NewToolResultError("CURSOR_BUILD_FAILED: failed to encode next page cursor; retry or narrow scope"), nil
+				return mcperr.FromText("CURSOR_BUILD_FAILED: failed to encode next page cursor; retry or narrow scope"), nil
 			}
-			return mcp.NewToolResultError(fmt.Sprintf("SEARCH_FAILED: %v", err)), nil
+			return mcperr.FromText(fmt.Sprintf("SEARCH_FAILED: %v", err)), nil
 		}
 
 		// Human-friendly summary
@@ -919,11 +919,11 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		pred := strings.TrimSpace(in.Predicate)
 		curTok := strings.TrimSpace(in.Cursor)
 		if p == "" {
-			return mcp.NewToolResultError("VALIDATION: path is required"), nil
+			return mcperr.FromText("VALIDATION: path is required"), nil
 		}
 		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
 		if openErr != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
+			return mcperr.FromText(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 		maxRows := in.MaxRows
 		if maxRows <= 0 || maxRows > 1000 {
@@ -940,19 +940,19 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		if curTok != "" {
 			pc, derr := pagination.DecodeCursor(curTok)
 			if derr != nil {
-				return mcp.NewToolResultError("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
+				return mcperr.FromText("CURSOR_INVALID: failed to decode cursor; reopen workbook and restart pagination"), nil
 			}
 			if pc.Pt != canonical {
-				return mcp.NewToolResultError("CURSOR_INVALID: cursor path does not match provided path"), nil
+				return mcperr.FromText("CURSOR_INVALID: cursor path does not match provided path"), nil
 			}
 			if pc.U != pagination.UnitRows {
-				return mcp.NewToolResultError("CURSOR_INVALID: unit mismatch; filter_data expects rows"), nil
+				return mcperr.FromText("CURSOR_INVALID: unit mismatch; filter_data expects rows"), nil
 			}
 			// When predicate/columns are provided alongside cursor, ensure they bind to same parameters
 			if pred != "" || len(in.Columns) > 0 {
 				ph := computePredicateHash(pred, in.Columns)
 				if pc.Ph != "" && pc.Ph != ph {
-					return mcp.NewToolResultError("CURSOR_INVALID: cursor parameters do not match current predicate/columns"), nil
+					return mcperr.FromText("CURSOR_INVALID: cursor parameters do not match current predicate/columns"), nil
 				}
 			}
 			sheet = pc.S
@@ -969,14 +969,14 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 			parsedCur = pc
 		} else {
 			if sheet == "" || pred == "" {
-				return mcp.NewToolResultError("VALIDATION: sheet and predicate are required (or supply cursor)"), nil
+				return mcperr.FromText("VALIDATION: sheet and predicate are required (or supply cursor)"), nil
 			}
 		}
 
 		// Compile predicate to evaluator
 		eval, perr := compilePredicate(pred)
 		if perr != nil {
-			return mcp.NewToolResultError("VALIDATION: invalid predicate; examples: $1 = \"foo\", $3 > 100, $2 contains \"bar\", ($1 = \"x\" AND $4 >= 0.5) OR NOT $5 = \"y\""), nil
+			return mcperr.FromText("VALIDATION: invalid predicate; examples: $1 = \"foo\", $3 > 100, $2 contains \"bar\", ($1 = \"x\" AND $4 >= 0.5) OR NOT $5 = \"y\""), nil
 		}
 
 		var output FilterDataOutput
@@ -1081,19 +1081,18 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		})
 		if err != nil {
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
-				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
 			if errors.Is(err, errCursorMtMismatch) {
-				return mcp.NewToolResultError("CURSOR_INVALID: file changed since cursor was issued; restart pagination"), nil
+				return mcperr.FromText("CURSOR_INVALID: file changed since cursor was issued; restart pagination"), nil
 			}
-			low := strings.ToLower(err.Error())
-			if strings.Contains(low, "doesn't exist") || strings.Contains(low, "does not exist") {
-				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			if mcperr.IsInvalidSheet(err) {
+				return mcperr.FromText("INVALID_SHEET: sheet not found"), nil
 			}
 			if strings.HasPrefix(err.Error(), "CURSOR_BUILD_FAILED:") {
-				return mcp.NewToolResultError("CURSOR_BUILD_FAILED: failed to encode next page cursor; retry or narrow scope"), nil
+				return mcperr.FromText("CURSOR_BUILD_FAILED: failed to encode next page cursor; retry or narrow scope"), nil
 			}
-			return mcp.NewToolResultError(fmt.Sprintf("FILTER_FAILED: %v", err)), nil
+			return mcperr.FromText(fmt.Sprintf("FILTER_FAILED: %v", err)), nil
 		}
 
 		// Attach human-readable summary and JSON results (like search_data)
@@ -1141,14 +1140,14 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		sheet := strings.TrimSpace(in.Sheet)
 		rng := strings.TrimSpace(in.RangeA1)
 		if p == "" || sheet == "" || rng == "" {
-			return mcp.NewToolResultError("VALIDATION: path, sheet, and range are required"), nil
+			return mcperr.FromText("VALIDATION: path, sheet, and range are required"), nil
 		}
 		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
 		if openErr != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
+			return mcperr.FromText(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 		if len(in.Values) == 0 {
-			return mcp.NewToolResultError("VALIDATION: values must be a non-empty 2D array"), nil
+			return mcperr.FromText("VALIDATION: values must be a non-empty 2D array"), nil
 		}
 
 		var updated int
@@ -1205,19 +1204,19 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		})
 		if err != nil {
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
-				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
 			lower := strings.ToLower(err.Error())
 			if strings.Contains(lower, "invalid range") || strings.Contains(lower, "coordinates") {
-				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
+				return mcperr.FromText("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
 			}
 			if strings.Contains(lower, "payload exceeds") {
-				return mcp.NewToolResultError("PAYLOAD_TOO_LARGE: reduce range size or split into batches"), nil
+				return mcperr.FromText("PAYLOAD_TOO_LARGE: reduce range size or split into batches"), nil
 			}
-			if strings.Contains(lower, "doesn't exist") || strings.Contains(lower, "does not exist") {
-				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			if mcperr.IsInvalidSheet(err) {
+				return mcperr.FromText("INVALID_SHEET: sheet not found"), nil
 			}
-			return mcp.NewToolResultError(fmt.Sprintf("WRITE_FAILED: %v", err)), nil
+			return mcperr.FromText(fmt.Sprintf("WRITE_FAILED: %v", err)), nil
 		}
 
 		out := WriteRangeOutput{Path: canonical, Sheet: sheet, RangeA1: rng, CellsUpdated: updated, Idempotent: false}
@@ -1253,11 +1252,11 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		rng := strings.TrimSpace(in.RangeA1)
 		formula := strings.TrimSpace(in.Formula)
 		if p == "" || sheet == "" || rng == "" || formula == "" {
-			return mcp.NewToolResultError("VALIDATION: path, sheet, range, and formula are required"), nil
+			return mcperr.FromText("VALIDATION: path, sheet, range, and formula are required"), nil
 		}
 		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
 		if openErr != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
+			return mcperr.FromText(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 
 		var cellsSet int
@@ -1290,19 +1289,19 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		})
 		if err != nil {
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
-				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
 			lower := strings.ToLower(err.Error())
 			if strings.Contains(lower, "invalid range") || strings.Contains(lower, "coordinates") {
-				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
+				return mcperr.FromText("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
 			}
 			if strings.Contains(lower, "exceeds max cells") {
-				return mcp.NewToolResultError("PAYLOAD_TOO_LARGE: reduce range size or split into batches"), nil
+				return mcperr.FromText("PAYLOAD_TOO_LARGE: reduce range size or split into batches"), nil
 			}
-			if strings.Contains(lower, "doesn't exist") || strings.Contains(lower, "does not exist") {
-				return mcp.NewToolResultError("INVALID_SHEET: sheet not found"), nil
+			if mcperr.IsInvalidSheet(err) {
+				return mcperr.FromText("INVALID_SHEET: sheet not found"), nil
 			}
-			return mcp.NewToolResultError(fmt.Sprintf("APPLY_FORMULA_FAILED: %v", err)), nil
+			return mcperr.FromText(fmt.Sprintf("APPLY_FORMULA_FAILED: %v", err)), nil
 		}
 
 		out := ApplyFormulaOutput{Path: canonical, Sheet: sheet, RangeA1: rng, CellsSet: cellsSet, Idempotent: false}
@@ -1395,11 +1394,11 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		sheet := strings.TrimSpace(in.Sheet)
 		rng := strings.TrimSpace(in.RangeA1)
 		if p == "" || sheet == "" || rng == "" {
-			return mcp.NewToolResultError("VALIDATION: path, sheet, and range are required"), nil
+			return mcperr.FromText("VALIDATION: path, sheet, and range are required"), nil
 		}
 		id, canonical, openErr := mgr.GetOrOpenByPath(ctx, p)
 		if openErr != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
+			return mcperr.FromText(fmt.Sprintf("OPEN_FAILED: %v", openErr)), nil
 		}
 		maxCells := in.MaxCells
 		if maxCells <= 0 || maxCells > limits.MaxCellsPerOp {
@@ -1542,16 +1541,16 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		})
 		if err != nil {
 			if errors.Is(err, workbooks.ErrHandleNotFound) {
-				return mcp.NewToolResultError("INVALID_HANDLE: workbook handle not found or expired"), nil
+				return mcperr.FromText("INVALID_HANDLE: workbook handle not found or expired"), nil
 			}
 			lower := strings.ToLower(err.Error())
 			if strings.Contains(lower, "invalid range") || strings.Contains(lower, "coordinates") {
-				return mcp.NewToolResultError("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
+				return mcperr.FromText("VALIDATION: invalid range; use A1:D50 or a defined name"), nil
 			}
 			if strings.Contains(lower, "too many groups") {
-				return mcp.NewToolResultError("LIMIT_EXCEEDED: too many groups for available budget; narrow group_by or reduce range"), nil
+				return mcperr.FromText("LIMIT_EXCEEDED: too many groups for available budget; narrow group_by or reduce range"), nil
 			}
-			return mcp.NewToolResultError(fmt.Sprintf("STATISTICS_FAILED: %v", err)), nil
+			return mcperr.FromText(fmt.Sprintf("STATISTICS_FAILED: %v", err)), nil
 		}
 
 		// Build concise summary string
