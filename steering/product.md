@@ -32,6 +32,6 @@ A Model Context Protocol (MCP) server built in Go that enables AI assistants to 
 - PR workflow: create a feature branch, open a PR to `main`, await green CI, squash-merge, and delete the branch.
 - Versioning: Semantic Versioning (vX.Y.Z). Tags are pushed and a GitHub Release is generated with notes.
 - Current version: v0.2.0
-- Policy: bump minor version for each completed task; use patch for hotfixes only.
+- Policy: bump the patch version for each completed task. When all tasks currently listed in `tasks.md` are complete, bump the minor version. Use extra patch bumps for hotfixes.
 - Go module: `github.com/vinodismyname/mcpxcel` (ensure imports use this path).
 - Documentation updates and config changes must be included in PRs alongside code changes.

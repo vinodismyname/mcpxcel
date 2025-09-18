@@ -79,7 +79,7 @@ Model new folders on tool boundaries to keep handlers, caches, and policy module
 
 - Use Semantic Versioning (`vX.Y.Z`).
 - After merging to `main`, tag a release (e.g., `v0.2.0`) and generate notes.
-- Policy: bump the minor version for each completed task; reserve patch for hotfixes.
+- Policy: bump the patch version for each completed task; bump the minor version once all tasks in `tasks.md` are complete. Reserve patch for hotfixes as needed.
 - Ensure the `pkg/version` package reflects the release version when appropriate.
 
 ## Configuration Management
