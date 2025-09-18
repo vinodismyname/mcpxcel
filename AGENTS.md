@@ -20,7 +20,7 @@ Before coding, You must first read `steering/product.md`, `steering/structure.md
 - `make test-race`: run race-enabled tests for `internal/...` packages.
 
 ## Coding Style & Naming Conventions
-Use Go 1.25 tooling: tabs for indentation, gofmt + goimports on save, and idiomatic Go error handling. Follow CamelCase for exported identifiers, snake_case filenames, and `VerbNoun` handler names (e.g., `OpenWorkbookHandler`). Keep packages single-purpose, colocate tests beside implementation, and document new limits in `config/`.
+Use Go 1.25 tooling: tabs for indentation, gofmt + goimports on save, and idiomatic Go error handling. Follow CamelCase for exported identifiers, snake_case filenames, and `VerbNoun` handler names (e.g., `FilterDataHandler`). Keep packages single-purpose, colocate tests beside implementation, and document new limits in `config/`.
 
 ## Testing Guidelines
 Author table-driven tests in `*_test.go` files and cover success, validation errors, and busy-limit paths. Use fixtures under `testdata/` for streaming scenarios and guard memory via iterator patterns. Run `make test` for coverage and `make test-race` when touching concurrency or workbook locking logic. Ensure responses assert metadata fields like `total`, `returned`, `truncated`, and `nextCursor`.
@@ -45,6 +45,7 @@ Do not push directly to `main`. Ensure all configuration and documentation chang
 
 ## Agent Note: Versioning Policy
 - After completing each task in `tasks.md`, bump the patch version and publish a release.
+- API model: path-only. Tools accept a canonical `path` (or `cursor`). Do not introduce `workbook_id` flows.
 - When all tasks currently listed in `tasks.md` are complete, bump the minor version.
 - Reserve additional patch versions for hotfixes unrelated to task completion.
 

@@ -6,16 +6,16 @@ The MCP Excel Analysis Server is a Model Context Protocol (MCP) compliant servic
 
 ## Requirements
 
-### Requirement 1
+### Requirement 1 (Path-Only Access)
 
-**User Story:** As an AI assistant, I want to open and manage multiple Excel workbooks simultaneously, so that I can analyze data across different files without conflicts or resource limitations.
+**User Story:** As an AI assistant, I want to operate on Excel files by path so that I don’t need transient workbook IDs and my calls are resilient to server restarts.
 
 #### Acceptance Criteria
 
-1. WHEN an AI assistant requests to open a workbook THEN the system SHALL return a unique workbook identifier for subsequent operations
-2. WHEN multiple workbooks are opened simultaneously THEN the system SHALL maintain separate handles for each workbook without interference
-3. WHEN a workbook is requested to be closed THEN the system SHALL release all associated resources and invalidate the workbook identifier
-4. WHEN the system reaches maximum concurrent workbooks THEN the system SHALL return an error with guidance on resource limits
+1. WHEN a tool is called with a `path` THEN the system SHALL validate allow-list and open or reuse an internal handle transparently
+2. WHEN multiple distinct paths are used simultaneously THEN the system SHALL maintain separate internal handles without interference
+3. WHEN internal capacity for open files is reached THEN the system SHALL return an error with guidance on resource limits
+4. WHEN a server restarts THEN subsequent calls with the same `path` SHALL succeed without requiring migration steps
 
 ### Requirement 2
 
@@ -156,7 +156,7 @@ The MCP Excel Analysis Server is a Model Context Protocol (MCP) compliant servic
 
 #### Acceptance Criteria
 
-1. WHEN pagination is provided THEN cursors SHALL remain stable across requests to prevent duplicates or gaps and responses SHALL include `total`, `returned`, `truncated`, and `nextCursor` metadata fields
+1. WHEN pagination is provided THEN cursors SHALL remain stable across requests to prevent duplicates or gaps and responses SHALL include `total`, `returned`, `truncated`, and `nextCursor` metadata fields; cursors bind to file `path` and `mtime`
 2. WHEN errors occur THEN the system SHALL return structured error objects containing an error code, human-readable message, and actionable guidance consistent with MCP protocol schemas
 3. WHEN operations timeout THEN the system SHALL return TIMEOUT error with suggestions to narrow scope
 4. WHEN validation fails THEN the system SHALL return specific validation errors with examples of correct formats

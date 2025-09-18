@@ -8,7 +8,7 @@ The MCP Excel Analysis Server is a Go-based Model Context Protocol (MCP) service
 - **qax-os/excelize** for low-level workbook access, streaming readers, and concurrency-safe writes over large spreadsheets.[^excelize-rows]
 - **tmc/langchaingo** (LangChainGo) for composing LLM-powered insight pipelines, memory management, and chain orchestration.[^lchain-arch]
 
-Server-side state is strictly ephemeral: workbook handles are cached with time-based eviction, and every MCP request carries all identifiers required to satisfy Requirement 11. Configuration-driven guardrails enforce payload, concurrency, and directory boundaries.
+Server design is path-first and stateless from a client perspective: tools take a canonical file `path`, and pagination cursors carry all information needed to resume without transient IDs. Internally, a TTL-based handle cache keyed by canonical path is used only as an optimization. Configuration-driven guardrails enforce payload, concurrency, and directory boundaries.
 
 ## Architectural Goals
 
@@ -100,8 +100,6 @@ type RuntimeController struct {
 
 | Tool | Requirement(s) | Notes |
 | --- | --- | --- |
-| `open_workbook` | 1,10,13 | Validates path, size, format; registers handle with TTL. |
-| `close_workbook` | 1 | Releases handle immediately. |
 | `list_structure` | 2 | Returns sheet names, dimensions, header row without data. |
 | `preview_sheet` | 2.3, 2.4 | Streams first _n_ rows via `Rows`, configurable preview length. |
 | `read_range` | 3,14 | Uses capped iterators, returns pagination cursor. |
@@ -117,10 +115,10 @@ Tool schemas are declared with typed handlers to leverage automatic validation:[
 
 ```go
 type ReadRangeInput struct {
-    WorkbookID string `json:"workbook_id" jsonschema:"required"`
-    Sheet      string `json:"sheet" jsonschema:"required"`
-    Range      string `json:"range" jsonschema:"required"`
-    Format     string `json:"format" jsonschema:"enum=json,enum=csv,enum=table,default=json"`
+    Path   string `json:"path" jsonschema:"description=Canonical Excel file path,required"`
+    Sheet  string `json:"sheet" jsonschema:"required"`
+    Range  string `json:"range" jsonschema:"required"`
+    Format string `json:"format" jsonschema:"enum=json,enum=csv,enum=table,default=json"`
 }
 
 readRangeTool := mcp.NewTool(
@@ -141,19 +139,20 @@ Resources complement tools to expose previews, active configuration, and cached 
 
 During startup, the registry publishes both tool catalog and resource catalog so `list_tools` and `list_resources` reflect schemas, defaults, and payload ceilings (Requirement 16.1–16.2).
 
-### Workbook Lifecycle & Streaming IO (`internal/workbook`)
+### Workbook Access & Streaming IO (`internal/workbook`)
 
 ```go
 type WorkbookManager struct {
     handles *sync.Map
     lru     *list.List
+    byPath  *sync.Map // canonical path -> handle id
     mu      sync.Mutex
     ttl     time.Duration
     limits  RuntimeLimits
 }
 ```
 
-- `OpenWorkbook` validates path + size, then loads `excelize.File` with `excelize.OpenFile` using optional password settings (Requirement 10). On success it stores a handle keyed by UUID with expiration metadata.  
+- `GetOrOpenByPath` validates and canonicalizes `path`, then loads `excelize.File` with `excelize.OpenFile` using optional password settings (Requirement 10). On success it stores a handle keyed by UUID and indexes it by canonical path.  
 - Reads use `Rows` / `Cols` iterators for streaming and call `Close()` when done to release temp files.[^excelize-rows]
 - Writes rely on `StreamWriter` with ascending row order requirements and final `Flush()` to commit changes.[^excelize-stream]
 - `AccessMutex` is an `RWMutex` per handle: concurrent reads share the lock, writes obtain exclusive access (Requirement 12.2–12.3).
@@ -202,20 +201,20 @@ sequenceDiagram
     participant Client
     participant MCP as MCP Server
     participant Runtime
-    participant Workbook
+    participant WB as Workbook
     participant Excelize
 
-    Client->>MCP: call_tool(read_range, workbook_id, sheet, range)
+    Client->>MCP: call_tool(read_range, path, sheet, range)
     MCP->>Runtime: Acquire request token
-    Runtime->>Workbook: GetHandle(workbook_id)
-    Workbook->>Workbook: RLock workbook
-    Workbook->>Excelize: Rows(sheet)
-    Excelize-->>Workbook: Iterator
+    Runtime->>WB: GetOrOpenByPath(path)
+    WB->>WB: RLock workbook
+    WB->>Excelize: Rows(sheet)
+    Excelize-->>WB: Iterator
     loop until cell limit or payload limit
-        Workbook->>Excelize: Next()
-        Excelize-->>Workbook: Row data
+        WB->>Excelize: Next()
+        Excelize-->>WB: Row data
     end
-    Workbook->>Workbook: Unlock workbook
+    WB->>WB: Unlock workbook
     Runtime->>Runtime: Release request token
     MCP-->>Client: Range data + metadata + nextCursor
 ```
@@ -255,13 +254,13 @@ sequenceDiagram
 
   {
     "v": 1,
-    "wid": "<workbook_id>",
+    "pt": "/abs/canonical/file.xlsx", // canonical path
     "s": "Sheet1",
     "r": "A1:D100",
     "u": "cells",          // unit: "cells" | "rows"
     "off": 200,             // offset in the chosen unit
     "ps": 1000,             // page size in unit
-    "wbv": 7,               // workbook mutation version snapshot
+    "mt": 1726600000,      // file modification time (unix seconds)
     "iat": 1726600000,      // issued-at (unix seconds)
     // tool-specific fields (optional)
     "qh": "<query_hash>",  // search_data binding hash
@@ -279,7 +278,7 @@ sequenceDiagram
 
 ### Tool Semantics
 
-- All paginated tools accept an optional `cursor` input. When present, it takes precedence over other positional inputs (e.g., `sheet`, `range`, `max_cells`).
+- All paginated tools accept an optional `cursor` input. When present, it takes precedence over other positional inputs (e.g., `path`, `sheet`, `range`, `max_cells`).
 - Tools emit `nextCursor` using the opaque format. When no further data remains, `nextCursor` is omitted and `truncated=false`.
 - Units by tool:
   - read_range: `u=cells` (row-major), offset counts cells written so far.
@@ -288,8 +287,8 @@ sequenceDiagram
 
 ### Stability Under Writes
 
-- The workbook manager maintains a per-handle mutation counter (`wbv`). Write tools (write_range, apply_formula, and future mutators) increment this counter upon successful commit.
-- Cursors embed the `wbv` snapshot at issuance. On resume, if the current handle version differs from the cursor `wbv`, the server SHALL return `CURSOR_INVALID` with guidance to restart the page or re-run the query narrowed in scope. This satisfies Requirement 14.1 by avoiding duplicates/gaps after mid-stream writes.
+- Cursor stability is bound to the file modification time (`mt`) snapshot at issuance.
+- On resume, if the current file `mtime` differs from the cursor `mt`, the server SHALL return `CURSOR_INVALID` with guidance to restart the page or re-run the query narrowed in scope. This satisfies Requirement 14.1 by avoiding duplicates/gaps after edits.
 
 ### Resume Computation
 
@@ -310,14 +309,13 @@ sequenceDiagram
 
 ### Security & Size
 
-- Cursors MUST NOT include filesystem paths or absolute locations; only the workbook handle ID is included.
-- Cursor lifetime is tied to handle TTLs; servers MAY reject stale cursors after handle expiration with `CURSOR_INVALID`.
+- Cursors include canonical filesystem `path` to enable stateless resume and survive server restarts in this deployment model.
 - Encoding is URL-safe base64 to avoid escaping concerns in transports and logs.
  - Text payloads: For `search_data`, servers MAY include a one-line human-readable summary at the start of the text content (e.g., `matches=<total> returned=<n> truncated=<bool> nextCursor=<token>`), followed by a compact JSON array of results. This improves UX for clients that ignore structured metadata.
 
 ### Error Semantics
 
-- `CURSOR_INVALID`: Returned when the cursor cannot be decoded, validation fails, the workbook handle is missing/expired, or the embedded `wbv` no longer matches the current handle version.
+- `CURSOR_INVALID`: Returned when the cursor cannot be decoded, validation fails, the file is missing/inaccessible, or the embedded `mt` no longer matches the current file.
 - Responses include actionable guidance: reopen/refresh the workbook, restart pagination, or narrow scope.
 
 ## Implementation Guidelines
@@ -389,9 +387,9 @@ sequenceDiagram
 - Repository: `https://github.com/vinodismyname/mcpxcel` (MIT licensed).
 - Branching: `main` is protected; changes land via PRs only.
 - CI: `.github/workflows/ci.yml` runs `make lint`, `make test`, and `make test-race` on PRs and `main`.
-- Versioning: SemVer tags (e.g., `v0.2.0`) originate from `main`. Tags trigger a GitHub Release with autogenerated notes.
+- Versioning: SemVer tags (e.g., `v0.2.2`) originate from `main`. Tags trigger a GitHub Release with autogenerated notes.
 - Policy: bump the patch version for each completed task; once all tasks in `tasks.md` are complete, bump the minor version. Use additional patch bumps for hotfixes.
-- Latest release: v0.2.0.
+- Latest release: v0.2.2.
 - Go Module: `github.com/vinodismyname/mcpxcel`. Maintain import path consistency, and add `/v2` suffix on major bumps.
 - Developer workflow: branch from `main` → implement + docs → open PR → green CI → squash-merge → `git pull` on `main` → `git tag vX.Y.Z` (if releasing) → `gh release create vX.Y.Z`.
 

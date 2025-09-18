@@ -30,9 +30,9 @@
 ### Core Packages
 
 - **`cmd/server`**: Go entrypoint code, main function, CLI argument handling
-- **`internal/runtime`**: Concurrency controls, semaphores, workbook locks, resource limits
+- **`internal/runtime`**: Concurrency controls, semaphores, resource limits
 - **`internal/registry`**: Tool registration, MCP server setup, handler wiring
-- **`internal/workbooks`**: Excelize adapters, workbook handle management, Excel operations
+- **`internal/workbooks`**: Excelize adapters and workbook access by canonical path with TTL caching
 
 ### Supporting Packages
 
