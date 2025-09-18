@@ -907,9 +907,15 @@ func RegisterFoundationTools(s *server.MCPServer, reg *Registry, limits runtime.
 		// Human-friendly summary
 		summary := fmt.Sprintf("matches=%d returned=%d truncated=%v", output.Meta.Total, output.Meta.Returned, output.Meta.Truncated)
 		res := mcp.NewToolResultStructured(output, summary)
-		// Attach results as JSON text so clients render hits alongside metadata
+		// Attach a human-readable summary line followed by JSON results text
 		if b, jerr := json.Marshal(output.Results); jerr == nil {
-			res.Content = []mcp.Content{mcp.NewTextContent(string(b))}
+			var sb strings.Builder
+			sb.WriteString(summary)
+			sb.WriteByte('\n')
+			sb.Write(b)
+			res.Content = []mcp.Content{mcp.NewTextContent(sb.String())}
+		} else {
+			res.Content = []mcp.Content{mcp.NewTextContent(summary)}
 		}
 		return res, nil
 	}))
