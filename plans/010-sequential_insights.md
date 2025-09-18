@@ -94,7 +94,7 @@ All new tools follow typed schemas via `mcp.NewTool` and `mcp.NewTypedToolHandle
 - Phase 3: Add robust outliers and funnel primitives.
 - Phase 4: Polish Insight Cards and config docs; expand examples.
 
-## References
+## References (please use mcp tools ref and octocode to study them)
 - MCP Sequential Thinking Patterns
   - spences10/mcp‑sequentialthinking‑tools (tool recommendations, confidence, rationale, inputs):
     - https://github.com/spences10/mcp-sequentialthinking-tools

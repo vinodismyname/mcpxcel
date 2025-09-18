@@ -130,7 +130,7 @@
   - Provide a planning tool and bounded, deterministic insight primitives; no server-embedded LLM. The MCP client (LLM) drives clarification, executes recommended tools, and narrates.
   - _Requirements: 4, 9, 14, 15, 16.1_
   - Reference: plans/010-sequential_insights.md
-  - [ ] 10.1 Add sequential_insights planning tool
+  - [x] 10.1 Add sequential_insights planning tool
     - Typed schema: `objective`, `path|cursor`, `hints`, `constraints`, `step_number`, `total_steps`, `next_step_needed`, revision/branch fields.
     - Output: `current_step`, `recommended_tools[{tool_name, confidence, rationale, priority, suggested_inputs, alternatives}]`, `questions[]`, `insight_cards[]`, `meta`.
     - Cursor precedence over path; include limits and truncation metadata.
