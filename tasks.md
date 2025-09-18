@@ -105,7 +105,7 @@
     - Add group-by aggregation using map reducers with memory budgeting and fallback to suggestions when limits exceed.
     - Surface structured result schema with units, precision, and resource usage hints for follow-on calls.
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
-  - [ ] 9.2 Implement search_data tool with pattern matching
+  - [x] 9.2 Implement search_data tool with pattern matching
     - Use Excelize `SearchSheet` for literal/regex searches with column filters, batching results to respect match caps.
     - Provide opaque pagination cursors (unit=rows) embedding `queryHash` (`qh`); include total match counts and bounded context rows per hit; validate `wbv` and `qh` on resume and return `CURSOR_INVALID` when mismatched.
     - Emit empty result payloads with zero totals when no matches are found.
