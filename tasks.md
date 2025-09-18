@@ -145,12 +145,9 @@
     - Change over time & variance to baseline/target; driver ranking (Top ± movers), Top-N + "Other" capping.
     - Composition/mix shift (±5pp threshold), concentration metrics (Top-N share, HHI bands), robust outliers (modified z-score |z|≥3.5, ≤5 reported).
     - Funnel analysis: stage detection from column names/hints, stage conversion and bottleneck detection; segment overlays optional.
-  - [ ] 10.5 Tests and documentation
+  - [x] 10.5 Tests and documentation
     - Planner test matrix, table detection and role inference tests on fixtures, primitive correctness on small XLSX.
     - Update steering/product.md, steering/tech.md, steering/structure.md, design.md, requirements.md (Req. 9), and AGENTS.md.
-  - [ ] 10.6 Config flags and safety
-    - Add config to enable bounded compute and set thresholds (max_groups, outlier limit, mix threshold); keep path-only API and cursor semantics.
-
  
 
 - [ ] 12. Establish validation, error handling, and retry semantics
@@ -168,7 +165,7 @@
     - Label write/transform tools with idempotency metadata and provide compensating action guidance where retries are unsafe.
     - _Requirements: 11.3, 11.4_
   - [ ] 12.4 Handle timeouts and cancellation consistently
-    - Propagate `context.Context` through Excelize iterators and LangChainGo chains, aborting work when deadlines expire.
+    - Propagate `context.Context` through Excelize iterators, aborting work when deadlines expire.
     - Convert timeout/cancellation to structured `TIMEOUT` errors with scope-narrowing recommendations.
     - _Requirements: 14.1, 14.3_
 

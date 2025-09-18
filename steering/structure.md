@@ -58,6 +58,7 @@
 - **Location**: `*_test.go` files beside the code they exercise
 - **Style**: Table-driven tests for validation matrices and error catalogs
 - **Integration**: Tests in `internal/integration` behind `integration` build tag
+ - **Insights**: See `internal/insights/*_test.go` for planner, detection, profiling, and primitive correctness tests using tiny generated `.xlsx` fixtures.
 
 ## File Boundaries
 
